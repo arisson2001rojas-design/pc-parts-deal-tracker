@@ -19,8 +19,11 @@ return new class extends Migration
         });
 
         Schema::table('pc_build_items', function (Blueprint $table): void {
-            $table->dropUnique(['pc_build_id', 'product_id']);
             $table->dropForeign(['product_id']);
+        });
+
+        Schema::table('pc_build_items', function (Blueprint $table): void {
+            $table->dropUnique(['pc_build_id', 'product_id']);
         });
 
         Schema::table('pc_build_items', function (Blueprint $table): void {
@@ -40,9 +43,13 @@ return new class extends Migration
         DB::table('pc_build_items')->whereNull('product_id')->delete();
 
         Schema::table('pc_build_items', function (Blueprint $table): void {
-            $table->dropUnique(['pc_build_id', 'pc_part_id']);
-            $table->dropConstrainedForeignId('pc_part_id');
             $table->dropForeign(['product_id']);
+        });
+
+        Schema::table('pc_build_items', function (Blueprint $table): void {
+            $table->dropForeign(['pc_part_id']);
+            $table->dropUnique(['pc_build_id', 'pc_part_id']);
+            $table->dropColumn('pc_part_id');
         });
 
         Schema::table('pc_build_items', function (Blueprint $table): void {
