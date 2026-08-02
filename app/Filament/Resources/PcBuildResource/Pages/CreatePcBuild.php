@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\PcBuildResource\Pages;
 
 use App\Filament\Resources\PcBuildResource;
+use App\Models\PcBuild;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreatePcBuild extends CreateRecord
@@ -18,6 +19,8 @@ class CreatePcBuild extends CreateRecord
 
     protected function afterCreate(): void
     {
-        $this->record->refresh()->evaluateAlert();
+        /** @var PcBuild $build */
+        $build = $this->record;
+        $build->refresh()->evaluateAlert();
     }
 }

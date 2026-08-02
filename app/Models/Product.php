@@ -277,6 +277,9 @@ class Product extends Model
         return $this->morphToMany(Tag::class, 'taggable');
     }
 
+    /**
+     * @return BelongsToMany<PcBuild, $this>
+     */
     public function pcBuilds(): BelongsToMany
     {
         return $this->belongsToMany(PcBuild::class, 'pc_build_items')

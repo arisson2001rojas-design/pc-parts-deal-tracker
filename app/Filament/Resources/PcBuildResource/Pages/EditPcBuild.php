@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\PcBuildResource\Pages;
 
 use App\Filament\Resources\PcBuildResource;
+use App\Models\PcBuild;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
 
@@ -19,6 +20,8 @@ class EditPcBuild extends EditRecord
 
     protected function afterSave(): void
     {
-        $this->record->refresh()->evaluateAlert();
+        /** @var PcBuild $build */
+        $build = $this->record;
+        $build->refresh()->evaluateAlert();
     }
 }

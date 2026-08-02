@@ -5,10 +5,10 @@ namespace App\Models;
 use App\Notifications\PcBuildTargetNotification;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Collection;
 
 /**
  * @property string $name
@@ -18,6 +18,7 @@ use Illuminate\Support\Collection;
  * @property int $missing_price_count
  * @property int $component_count
  * @property User $user
+ * @property-read EloquentCollection<int, PcBuildItem> $items
  */
 class PcBuild extends Model
 {
@@ -34,6 +35,9 @@ class PcBuild extends Model
         return $this->belongsTo(User::class);
     }
 
+    /**
+     * @return HasMany<PcBuildItem, $this>
+     */
     public function items(): HasMany
     {
         return $this->hasMany(PcBuildItem::class);
@@ -104,12 +108,15 @@ class PcBuild extends Model
     }
 
     /**
-     * @return Collection<int, PcBuildItem>
+     * @return EloquentCollection<int, PcBuildItem>
      */
-    private function itemsWithProducts(): Collection
+    private function itemsWithProducts(): EloquentCollection
     {
         $this->loadMissing('items.product');
 
-        return $this->items->filter(fn (PcBuildItem $item): bool => $item->product !== null);
+        /** @var EloquentCollection<int, PcBuildItem> $items */
+        $items = $this->items;
+
+        return $items->filter(fn (PcBuildItem $item): bool => $item->product !== null);
     }
 }

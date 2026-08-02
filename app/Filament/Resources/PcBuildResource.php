@@ -64,7 +64,7 @@ class PcBuildResource extends Resource
                             ->searchable()
                             ->preload()
                             ->required()
-                            ->disableOptionsWhenSelectedInSiblingRepeater(),
+                            ->distinct(),
 
                         TextInput::make('quantity')
                             ->numeric()
