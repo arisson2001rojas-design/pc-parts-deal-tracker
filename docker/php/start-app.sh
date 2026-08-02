@@ -6,9 +6,6 @@ if [ ! -f ".env" ] ||  ! grep -q . ".env" ; then
     php artisan key:generate --force
 fi
 
-# Debugging
-printenv
-
 # Ensure storage exists
 mkdir -p storage/framework/sessions \
     && mkdir -p storage/framework/views \
