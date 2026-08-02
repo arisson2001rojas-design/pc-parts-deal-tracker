@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 
 /**
  * @property string $name
@@ -102,7 +103,10 @@ class PcBuild extends Model
         ])->saveQuietly();
     }
 
-    private function itemsWithProducts()
+    /**
+     * @return Collection<int, PcBuildItem>
+     */
+    private function itemsWithProducts(): Collection
     {
         $this->loadMissing('items.product');
 

@@ -326,9 +326,16 @@ class ProductResource extends Resource
                             TextColumn::make('component_type')
                                 ->label('Component')
                                 ->badge()
-                                ->formatStateUsing(fn ($state): string => $state instanceof ComponentType ? $state->getLabel() : '')
-                                ->color(fn ($state): string => $state instanceof ComponentType ? $state->getColor() : 'gray')
-                                ->visible(fn (Product $record): bool => $record->component_type !== null),
+                                ->formatStateUsing(function ($state): string {
+                                    $type = $state instanceof ComponentType ? $state : ComponentType::tryFrom((string) $state);
+
+                                    return $type?->getLabel() ?? '';
+                                })
+                                ->color(function ($state): string {
+                                    $type = $state instanceof ComponentType ? $state : ComponentType::tryFrom((string) $state);
+
+                                    return $type?->getColor() ?? 'gray';
+                                }),
 
                             Tables\Columns\ViewColumn::make('badges')
                                 ->view('components.product-badges')
