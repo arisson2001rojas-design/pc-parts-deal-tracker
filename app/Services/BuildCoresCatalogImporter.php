@@ -227,4 +227,3 @@ class BuildCoresCatalogImporter
         return [$temporaryPath, true];
     }
 }
-

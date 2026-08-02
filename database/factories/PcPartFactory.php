@@ -34,4 +34,3 @@ class PcPartFactory extends Factory
         ];
     }
 }
-

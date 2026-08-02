@@ -191,4 +191,3 @@ class PcPartResource extends Resource
         ];
     }
 }
-

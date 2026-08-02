@@ -31,4 +31,3 @@ class SyncPcPartsCatalog extends Command
         return self::SUCCESS;
     }
 }
-

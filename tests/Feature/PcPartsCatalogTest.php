@@ -8,7 +8,6 @@ use App\Jobs\UpdateProductPricesJob;
 use App\Models\PcBuild;
 use App\Models\PcBuildItem;
 use App\Models\PcPart;
-use App\Models\Product;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\BuildCoresCatalogImporter;
@@ -169,4 +168,3 @@ class PcPartsCatalogTest extends TestCase
         ], $extra);
     }
 }
-
