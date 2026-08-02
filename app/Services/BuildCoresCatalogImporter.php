@@ -83,13 +83,17 @@ class BuildCoresCatalogImporter
             if (count($rows) >= 500) {
                 $this->upsert($rows);
                 $rows = [];
-                $onImported?->__invoke($imported);
+                if ($onImported !== null) {
+                    $onImported($imported);
+                }
             }
         }
 
         if ($rows !== []) {
             $this->upsert($rows);
-            $onImported?->__invoke($imported);
+            if ($onImported !== null) {
+                $onImported($imported);
+            }
         }
 
         return $imported;
@@ -107,7 +111,12 @@ class BuildCoresCatalogImporter
             'RAM' => ComponentType::Ram,
             'PSU' => ComponentType::Psu,
             'Storage' => ComponentType::Ssd,
+            default => null,
         };
+
+        if ($componentType === null) {
+            return null;
+        }
 
         if ($category === 'Storage' && strtoupper((string) ($data['storage_type'] ?? $data['type'] ?? '')) !== 'SSD') {
             return null;

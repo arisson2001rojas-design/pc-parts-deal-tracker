@@ -154,7 +154,11 @@ class PcPartResource extends Resource
                     ->label('Track selected prices')
                     ->icon('heroicon-o-bell')
                     ->action(function (Collection $records, CatalogTrackingService $tracking): void {
-                        $records->each(fn (PcPart $part) => $tracking->track($part, auth()->id()));
+                        $records->each(function ($part) use ($tracking): void {
+                            if ($part instanceof PcPart) {
+                                $tracking->track($part, auth()->id());
+                            }
+                        });
                         Notification::make()->title('Price checks queued')->success()->send();
                     })
                     ->deselectRecordsAfterCompletion(),
