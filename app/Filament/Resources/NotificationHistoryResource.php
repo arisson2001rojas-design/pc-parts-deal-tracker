@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\NotificationHistoryResource\Pages;
 use App\Models\Notification;
 use App\Models\User;
+use App\Notifications\PcBuildTargetNotification;
 use App\Notifications\PriceAlertNotification;
 use App\Notifications\ScrapeFailNotification;
 use App\Notifications\StockAlertNotification;
@@ -47,6 +48,7 @@ class NotificationHistoryResource extends Resource
     public static function typeMeta(): array
     {
         return [
+            PcBuildTargetNotification::class => ['label' => 'Build total', 'color' => 'success', 'icon' => 'heroicon-m-computer-desktop'],
             PriceAlertNotification::class => ['label' => 'Price alert', 'color' => 'success', 'icon' => 'heroicon-m-tag'],
             StockAlertNotification::class => ['label' => 'Back in stock', 'color' => 'success', 'icon' => 'heroicon-m-check-circle'],
             ScrapeFailNotification::class => ['label' => 'Scrape error', 'color' => 'warning', 'icon' => 'heroicon-m-exclamation-triangle'],

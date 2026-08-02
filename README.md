@@ -1,5 +1,7 @@
 # <img src="public/images/logo-full.svg" width="250" height="auto" alt="PriceBuddy">
 
+> **PC Parts fork:** This branch adds CPU/GPU/RAM/SSD/PSU categories, complete-build totals, target-total alerts, and Amazon/Walmart/Newegg store templates. See [PC_PARTS_FORK.md](PC_PARTS_FORK.md) for setup, cost limitations, retailer API options, and terms-of-service risks.
+
 **Track prices from the stores you actually use. Run it yourself. Keep the data. Know when a deal is real.**
 
 PriceBuddy is an open source, self-hostable price tracker for people who would rather watch products than browser tabs. Paste in a product URL, let PriceBuddy check it on a schedule, and get notified when the price or availability moves in your favour.

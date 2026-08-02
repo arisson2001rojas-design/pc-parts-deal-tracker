@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\ComponentType;
 use App\Enums\Icons;
 use App\Enums\Statuses;
 use App\Filament\Resources\ProductResource\Actions\FetchBulkAction;
@@ -99,6 +100,13 @@ class ProductResource extends Resource
                 ->nullable();
         }
 
+        $components[] = Select::make('component_type')
+            ->label('Component type')
+            ->options(ComponentType::class)
+            ->searchable()
+            ->native(false)
+            ->hintIcon(Icons::Help->value, 'Used to filter PC parts and calculate complete build totals');
+
         $components[] = self::createTagsSelect();
 
         $components[] = TextInput::make('price_factor')
@@ -174,6 +182,13 @@ class ProductResource extends Resource
                 TextInput::make('image')
                     ->label('Image Url')
                     ->hintIcon(Icons::Help->value, 'The Image URL of the product'),
+
+                Select::make('component_type')
+                    ->label('Component type')
+                    ->options(ComponentType::class)
+                    ->searchable()
+                    ->native(false)
+                    ->hintIcon(Icons::Help->value, 'Assign CPU, GPU, RAM, SSD, or power supply to use this product in PC builds'),
 
                 TextInput::make('unit_of_measure')
                     ->label('Sold as')
@@ -308,6 +323,13 @@ class ProductResource extends Resource
                                 ->extraAttributes(['class' => 'pr-4 min-w-40'])
                                 ->url(fn (Product $record): string => $record->action_urls['view']),
 
+                            TextColumn::make('component_type')
+                                ->label('Component')
+                                ->badge()
+                                ->formatStateUsing(fn ($state): string => $state instanceof ComponentType ? $state->getLabel() : '')
+                                ->color(fn ($state): string => $state instanceof ComponentType ? $state->getColor() : 'gray')
+                                ->visible(fn (Product $record): bool => $record->component_type !== null),
+
                             Tables\Columns\ViewColumn::make('badges')
                                 ->view('components.product-badges')
                                 ->viewData(['attributes' => new ComponentAttributeBag(['class' => 'flex md:gap-3 flex-col md:flex-row'])]),
@@ -330,6 +352,10 @@ class ProductResource extends Resource
                 SelectFilter::make('status')
                     ->options(Statuses::class)
                     ->label('Status')
+                    ->native(false),
+                SelectFilter::make('component_type')
+                    ->label('Component type')
+                    ->options(ComponentType::class)
                     ->native(false),
                 SelectFilter::make('lowest_in_period')
                     ->label('Current price is lowest in')

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ComponentType;
 use App\Dto\PriceCacheDto;
 use App\Enums\Statuses;
 use App\Enums\StockStatus;
@@ -21,6 +22,7 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
@@ -57,6 +59,7 @@ use Illuminate\Support\Str;
  * @property bool $is_last_scrape_successful
  * @property bool $is_notified_price
  * @property ?string $unit_of_measure
+ * @property ?ComponentType $component_type
  * @property Carbon $created_at
  * @property string $first_scrape_date
  */
@@ -74,6 +77,7 @@ class Product extends Model
     ];
 
     protected $casts = [
+        'component_type' => ComponentType::class,
         'status' => Statuses::class,
         'ignored_urls' => 'array',
         'price_cache' => 'array',
@@ -271,6 +275,13 @@ class Product extends Model
     public function tags(): MorphToMany
     {
         return $this->morphToMany(Tag::class, 'taggable');
+    }
+
+    public function pcBuilds(): BelongsToMany
+    {
+        return $this->belongsToMany(PcBuild::class, 'pc_build_items')
+            ->withPivot('quantity')
+            ->withTimestamps();
     }
 
     /***************************************************

@@ -45,6 +45,11 @@ class UpdateProductPricesJob implements ShouldQueue
             $this->handleFailures($failedUrls);
         }
 
+        $this->product->pcBuilds()
+            ->with(['items.product', 'user'])
+            ->get()
+            ->each(fn ($build) => $build->evaluateAlert());
+
         Sleep::for(AppSettings::new()->sleep_seconds_between_scrape)->seconds();
     }
 

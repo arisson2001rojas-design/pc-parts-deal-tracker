@@ -44,6 +44,10 @@ class CreateHandler extends Handlers
         );
 
         if ($urlModel) {
+            if (filled(data_get($values, 'component_type'))) {
+                $urlModel->product->update(['component_type' => data_get($values, 'component_type')]);
+            }
+
             return response()->json([
                 'data' => new ProductTransformer($urlModel->product),
                 'message' => 'Product created',

@@ -25,6 +25,7 @@ class PaginationHandler extends Handlers
         return [
             'id',
             'title',
+            'component_type',
             'image',
             'status',
             'notify_price',
@@ -43,7 +44,9 @@ class PaginationHandler extends Handlers
         return [
             'id',
             'title',
+            'component_type',
             'status',
+            'component_type',
             'notify_price',
             'favourite',
             'created_at',
