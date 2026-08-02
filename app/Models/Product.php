@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
-use App\Enums\ComponentType;
 use App\Dto\PriceCacheDto;
+use App\Enums\ComponentType;
 use App\Enums\Statuses;
 use App\Enums\StockStatus;
 use App\Enums\Trend;
