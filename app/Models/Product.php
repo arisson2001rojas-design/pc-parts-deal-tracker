@@ -60,6 +60,7 @@ use Illuminate\Support\Str;
  * @property bool $is_notified_price
  * @property ?string $unit_of_measure
  * @property ?ComponentType $component_type
+ * @property ?PcPart $pcPart
  * @property Carbon $created_at
  * @property string $first_scrape_date
  */
@@ -240,6 +241,11 @@ class Product extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function pcPart(): BelongsTo
+    {
+        return $this->belongsTo(PcPart::class);
     }
 
     /**

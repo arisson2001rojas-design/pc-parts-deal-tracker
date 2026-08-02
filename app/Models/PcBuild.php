@@ -53,7 +53,7 @@ class PcBuild extends Model
         return Attribute::make(
             get: fn (): float => round(
                 $this->itemsWithProducts()
-                    ->filter(fn (PcBuildItem $item): bool => (float) $item->product->current_price > 0)
+                    ->filter(fn (PcBuildItem $item): bool => $item->product !== null && (float) $item->product->current_price > 0)
                     ->sum(fn (PcBuildItem $item): float => (float) $item->product->current_price * $item->quantity),
                 2
             )
@@ -64,7 +64,7 @@ class PcBuild extends Model
     {
         return Attribute::make(
             get: fn (): int => $this->itemsWithProducts()
-                ->filter(fn (PcBuildItem $item): bool => (float) $item->product->current_price <= 0)
+                ->filter(fn (PcBuildItem $item): bool => $item->product === null || (float) $item->product->current_price <= 0)
                 ->count()
         );
     }
@@ -72,7 +72,7 @@ class PcBuild extends Model
     public function componentCount(): Attribute
     {
         return Attribute::make(
-            get: fn (): int => (int) $this->itemsWithProducts()->sum('quantity')
+            get: fn (): int => (int) $this->items()->sum('quantity')
         );
     }
 

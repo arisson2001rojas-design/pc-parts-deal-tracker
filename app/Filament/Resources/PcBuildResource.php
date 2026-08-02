@@ -2,10 +2,9 @@
 
 namespace App\Filament\Resources;
 
-use App\Enums\ComponentType;
 use App\Filament\Resources\PcBuildResource\Pages;
 use App\Models\PcBuild;
-use App\Models\Product;
+use App\Models\PcPart;
 use App\Providers\Filament\AdminPanelProvider;
 use App\Services\Helpers\CurrencyHelper;
 use Filament\Forms;
@@ -58,11 +57,12 @@ class PcBuildResource extends Resource
                 Repeater::make('items')
                     ->relationship()
                     ->schema([
-                        Select::make('product_id')
-                            ->label('Tracked component')
-                            ->options(fn (): array => self::componentOptions())
+                        Select::make('pc_part_id')
+                            ->label('Component catalog')
+                            ->options(fn (): array => self::catalogOptions())
+                            ->getSearchResultsUsing(fn (string $search): array => self::catalogOptions($search))
+                            ->getOptionLabelUsing(fn ($value): ?string => PcPart::query()->find($value)?->display_name)
                             ->searchable()
-                            ->preload()
                             ->required()
                             ->distinct(),
 
@@ -81,7 +81,7 @@ class PcBuildResource extends Resource
                     ->addActionLabel('Add component')
                     ->reorderable(false),
             ])
-                ->description('Only products assigned to CPU, GPU, RAM, SSD, PSU, or Other appear here.'),
+                ->description('Search the open CPU, GPU, RAM, SSD, and PSU catalog. Selecting a part starts daily price tracking automatically.'),
 
             Forms\Components\Section::make('What the total includes')
                 ->schema([
@@ -177,21 +177,22 @@ class PcBuildResource extends Resource
         ];
     }
 
-    private static function componentOptions(): array
+    private static function catalogOptions(string $search = ''): array
     {
-        return Product::query()
-            ->currentUser()
-            ->whereNotNull('component_type')
+        return PcPart::query()
+            ->when($search !== '', fn (Builder $query) => $query->searchCatalog($search))
             ->orderBy('component_type')
-            ->orderBy('title')
+            ->orderByDesc('release_year')
+            ->orderBy('name')
+            ->limit(50)
             ->get()
-            ->mapWithKeys(function (Product $product): array {
-                $type = $product->component_type instanceof ComponentType
-                    ? $product->component_type->getLabel()
-                    : strtoupper((string) $product->component_type);
-                $price = $product->current_price > 0
-                    ? CurrencyHelper::toString($product->current_price)
-                    : 'no current price';
+            ->mapWithKeys(function (PcPart $product): array {
+                $type = $product->component_type->getLabel();
+                $year = $product->release_year ? " ({$product->release_year})" : '';
+                $stores = collect(array_keys($product->retailer_urls ?? []))
+                    ->map(fn (string $store): string => ucfirst($store))
+                    ->join(', ');
+                $price = $year.($stores !== '' ? " stores: {$stores}" : ' no retailer identifier');
 
                 return [$product->getKey() => "[$type] {$product->title} — $price"];
             })

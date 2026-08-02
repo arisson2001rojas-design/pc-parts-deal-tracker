@@ -26,6 +26,39 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Open PC component catalog.
+    |--------------------------------------------------------------------------
+    */
+    'pc_parts_catalog_url' => env(
+        'PC_PARTS_CATALOG_URL',
+        'https://codeload.github.com/buildcores/buildcores-open-db/zip/refs/heads/main'
+    ),
+
+    'pc_parts_starter_searches' => [
+        'cpu' => [
+            'Ryzen 5 4500', 'Ryzen 5 5500', 'Ryzen 5 5600', 'Ryzen 5 7600',
+            'Core i3-12100F', 'Core i3-13100F', 'Core i5-12400F',
+        ],
+        'gpu' => [
+            'Arc A380', 'Arc A580', 'Arc B570', 'Radeon RX 6400',
+            'Radeon RX 6500 XT', 'Radeon RX 6600', 'GeForce RTX 3050', 'GeForce RTX 4060',
+        ],
+        'ram' => [
+            'Vengeance LPX 16GB', 'T-Force Vulcan Z 16GB', 'Silicon Power 16GB',
+            'Crucial Pro 32GB', 'Vengeance 32GB DDR5',
+        ],
+        'ssd' => [
+            'Crucial P3 Plus 1TB', 'WD Blue SN580 1TB', 'MP44L 1TB',
+            'Kingston NV3 1TB', 'Silicon Power UD90 1TB',
+        ],
+        'psu' => [
+            'MAG A650BN', 'Corsair CX650', 'Thermaltake Smart 500W',
+            'Toughpower GX2 600W', 'Pure Power 12 M 750W',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Strategies to attempt for auto store creation.
     |
     | For each strategy, you can specify a selector and/or regex to attempt to
