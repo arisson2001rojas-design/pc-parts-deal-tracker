@@ -117,6 +117,6 @@ class PcBuild extends Model
         /** @var EloquentCollection<int, PcBuildItem> $items */
         $items = $this->items;
 
-        return $items->filter(fn (PcBuildItem $item): bool => $item->product !== null);
+        return $items;
     }
 }
