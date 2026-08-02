@@ -46,7 +46,8 @@ class UpdateProductPricesJob implements ShouldQueue
             $this->handleFailures($failedUrls);
         }
 
-        $this->product->pcBuilds()
+        PcBuild::query()
+            ->whereHas('items', fn ($query) => $query->where('product_id', $this->product->getKey()))
             ->with(['items.product', 'user'])
             ->get()
             ->each(fn (PcBuild $build) => $build->evaluateAlert());
