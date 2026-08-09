@@ -19,6 +19,13 @@ return new class extends Migration
         });
 
         Schema::table('pc_build_items', function (Blueprint $table): void {
+            // The original composite unique index also backs the pc_build_id
+            // foreign key in MySQL. Give that FK its own index before replacing
+            // the composite key.
+            $table->index('pc_build_id');
+        });
+
+        Schema::table('pc_build_items', function (Blueprint $table): void {
             $table->dropForeign(['product_id']);
         });
 
@@ -56,6 +63,10 @@ return new class extends Migration
             $table->unsignedBigInteger('product_id')->nullable(false)->change();
             $table->foreign('product_id')->references('id')->on('products')->cascadeOnDelete();
             $table->unique(['pc_build_id', 'product_id']);
+        });
+
+        Schema::table('pc_build_items', function (Blueprint $table): void {
+            $table->dropIndex(['pc_build_id']);
         });
 
         Schema::table('products', function (Blueprint $table): void {

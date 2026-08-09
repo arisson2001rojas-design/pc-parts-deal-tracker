@@ -1,5 +1,7 @@
 # Env
 .env
+.env.local
+.local-login.txt
 .env.backup
 .env.production
 

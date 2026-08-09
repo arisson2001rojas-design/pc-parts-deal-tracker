@@ -85,4 +85,49 @@ return [
         ],
         'notes' => 'Automated access may be prohibited by Newegg terms and can lead to an IP ban; use only with permission or an approved API.',
     ],
+    [
+        'name' => 'Micro Center US',
+        'slug' => 'micro-center-us',
+        'domains' => [
+            ['domain' => 'microcenter.com'],
+            ['domain' => 'www.microcenter.com'],
+        ],
+        'scrape_strategy' => [
+            'title' => ['type' => 'schema_org'],
+            'price' => ['type' => 'schema_org'],
+            'image' => ['type' => 'schema_org'],
+            'availability' => ['type' => 'schema_org'],
+        ],
+        'notes' => 'Deal Hunter discovers indexed links. Confirm the selected store location and pickup-only availability before purchase.',
+    ],
+    [
+        'name' => 'Best Buy US',
+        'slug' => 'best-buy-us',
+        'domains' => [
+            ['domain' => 'bestbuy.com'],
+            ['domain' => 'www.bestbuy.com'],
+        ],
+        'scrape_strategy' => [
+            'title' => ['type' => 'schema_org'],
+            'price' => ['type' => 'schema_org'],
+            'image' => ['type' => 'schema_org'],
+            'availability' => ['type' => 'schema_org'],
+        ],
+        'notes' => 'For reliable near-real-time prices, add a free official Best Buy developer API key.',
+    ],
+    [
+        'name' => 'GameStop US',
+        'slug' => 'gamestop-us',
+        'domains' => [
+            ['domain' => 'gamestop.com'],
+            ['domain' => 'www.gamestop.com'],
+        ],
+        'scrape_strategy' => [
+            'title' => ['type' => 'schema_org'],
+            'price' => ['type' => 'schema_org'],
+            'image' => ['type' => 'schema_org'],
+            'availability' => ['type' => 'schema_org'],
+        ],
+        'notes' => 'Direct automated scraping is disabled. Deal Hunter only discovers links and indexed price snippets.',
+    ],
 ];

@@ -1,6 +1,9 @@
 # <img src="public/images/logo-full.svg" width="250" height="auto" alt="PriceBuddy">
 
-> **PC Parts fork:** This branch adds CPU/GPU/RAM/SSD/PSU categories, complete-build totals, target-total alerts, and Amazon/Walmart/Newegg store templates. See [PC_PARTS_FORK.md](PC_PARTS_FORK.md) for setup, cost limitations, retailer API options, and terms-of-service risks.
+> **PC Deal Hunter fork:** This branch adds a large CPU/GPU/RAM/SSD/PSU catalog,
+> curated DealNews prices, saved multi-store discoveries, comparisons, and alerts for
+> Amazon, Walmart, Micro Center, Newegg, Best Buy, and GameStop. See
+> [DEAL_HUNTER_ES.md](DEAL_HUNTER_ES.md) for the local setup and usage guide.
 
 **Track prices from the stores you actually use. Run it yourself. Keep the data. Know when a deal is real.**
 

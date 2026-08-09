@@ -40,17 +40,38 @@ class InitDatabase extends Command
         if ($hasTables) {
             $this->getOutput()->info('Database already initialized');
 
-            $this->components->task('Applying database updates', function () {
-                $this->callSilent('migrate', ['--force' => true]);
-            });
+            $migrationResult = self::FAILURE;
+            $this->components->task(
+                'Applying database updates',
+                function () use (&$migrationResult): bool {
+                    $migrationResult = $this->callSilent('migrate', ['--force' => true]);
+
+                    return $migrationResult === self::SUCCESS;
+                }
+            );
+
+            if ($migrationResult !== self::SUCCESS) {
+                $this->getOutput()->error('Database updates failed');
+
+                return self::FAILURE;
+            }
 
             // @todo sync stores?
         } else {
             $this->getOutput()->info('Database exists, but not initialized');
 
-            $this->components->task('Setting up the database', fn () => $this
-                ->callSilent('migrate:fresh', ['--force' => true])
-            );
+            $migrationResult = self::FAILURE;
+            $this->components->task('Setting up the database', function () use (&$migrationResult): bool {
+                $migrationResult = $this->callSilent('migrate:fresh', ['--force' => true]);
+
+                return $migrationResult === self::SUCCESS;
+            });
+
+            if ($migrationResult !== self::SUCCESS) {
+                $this->getOutput()->error('Database setup failed');
+
+                return self::FAILURE;
+            }
 
             // @phpstan-ignore-next-line
             $storeCountry = env('DEFAULT_STORES_COUNTRY', 'all');

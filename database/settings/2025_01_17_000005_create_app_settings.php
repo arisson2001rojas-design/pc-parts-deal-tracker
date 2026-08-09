@@ -15,6 +15,11 @@ return new class extends SettingsMigration
         $this->migrator->add('app.log_retention_days', 30);
         $this->migrator->add('app.max_attempts_to_scrape', 3);
         $this->migrator->add('app.notification_services', []);
+        // AppSettings already declares these properties. They must exist before
+        // another property is saved or a fresh install is considered incomplete.
+        // The later, idempotent migration still adds them for older databases.
+        $this->migrator->add('app.scrape_retry_max_attempts', 3);
+        $this->migrator->add('app.scrape_retry_delay_minutes', 15);
         $this->migrator->add('app.integrated_services', []);
     }
 

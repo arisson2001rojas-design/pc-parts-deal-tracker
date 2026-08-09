@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # Setup the environment file if it doesn't exist
 if [ ! -f ".env" ] ||  ! grep -q . ".env" ; then
     cp .env.example .env
@@ -24,9 +26,6 @@ while ! nc -z ${DB_HOST:-database} ${DB_PORT:-3306}; do
   sleep 1
 done
 
-# Optimize clear once DB ready
-php artisan optimize:clear
-
 # Run migrations and seed the database if required
 php artisan buddy:init-db
 
@@ -40,7 +39,7 @@ php artisan event:cache
 php artisan buddy:regenerate-price-cache
 
 # Install xdebug if running in Lando environment
-if [ ! -z "${LANDO_INFO}" ]; then
+if [ -n "${LANDO_INFO:-}" ]; then
     pecl install xdebug && docker-php-ext-enable xdebug
 fi
 
