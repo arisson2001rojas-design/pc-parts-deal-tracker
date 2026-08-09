@@ -25,12 +25,14 @@ return [
     'scraper_api_url' => env('SCRAPER_BASE_URL', 'http://scraper:3000'),
 
     /*
-    | Retailers whose published terms do not allow automated page access.
-    | Their links can still appear through approved APIs or curated deal feeds.
+    | Optional local deny-list for retailers that should never be requested by
+    | the scheduled URL scraper. Keep this configurable instead of hard-coding
+    | transport failures as policy decisions.
     */
-    'automated_access_disabled_domains' => [
-        'newegg.com',
-    ],
+    'automated_access_disabled_domains' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('SCRAPER_DISABLED_DOMAINS', '')),
+    ))),
 
     /*
     |--------------------------------------------------------------------------

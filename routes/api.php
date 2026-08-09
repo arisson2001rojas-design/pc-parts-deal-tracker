@@ -2,6 +2,7 @@
 
 use App\Enums\ApiAbility;
 use App\Http\Controllers\Api\MetaExtractionController;
+use App\Http\Controllers\BrowserPriceCaptureController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -12,3 +13,7 @@ Route::get('/user', function (Request $request) {
 Route::post('/meta-extraction', MetaExtractionController::class)
     ->middleware(['auth:sanctum', 'ability:'.ApiAbility::MetaExtractionExtract->value])
     ->name('api.meta-extraction');
+
+Route::post('/browser-capture/{offer}', BrowserPriceCaptureController::class)
+    ->middleware(['signed', 'throttle:30,1'])
+    ->name('api.browser-capture');

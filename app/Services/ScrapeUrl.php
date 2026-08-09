@@ -14,6 +14,7 @@ use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Support\Uri;
+use Illuminate\Validation\ValidationException;
 use Jez500\WebScraperForLaravel\Exceptions\DomSelectorException;
 use Jez500\WebScraperForLaravel\Facades\WebScraper;
 use Jez500\WebScraperForLaravel\WebScraperApi;
@@ -114,9 +115,9 @@ class ScrapeUrl
         }
 
         $attempt = 0;
-        $output = [];
+        $output = $this->scrapeWithPriceExtractor() ?? [];
 
-        while ($attempt < $this->maxAttempts) {
+        while ($output === [] && $attempt < $this->maxAttempts) {
             $attempt++;
 
             // Don't use cache if previous attempt failed.
@@ -159,6 +160,44 @@ class ScrapeUrl
         }
 
         return $output;
+    }
+
+    /**
+     * Use the lightweight, retailer-specific extractor before browser automation.
+     * It returns only normalized metadata and never stores the retailer HTML.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function scrapeWithPriceExtractor(): ?array
+    {
+        $store = $this->getStore();
+        if (! $store) {
+            return null;
+        }
+
+        $result = resolve(RetailPriceExtractorClient::class)->extractUrl($this->url);
+        if ($result === null) {
+            return null;
+        }
+
+        try {
+            $winner = resolve(PriceCandidateSelector::class)->select(
+                $result['candidates'],
+                expectedCurrency: (string) ($store->currency ?: 'USD'),
+            );
+        } catch (ValidationException) {
+            return null;
+        }
+
+        return [
+            'store' => $store,
+            'title' => self::preSaveTruncate($result['title']),
+            'price' => $winner['price'],
+            'image' => self::preSaveMaxLength($result['image_url']),
+            'availability' => null,
+            'body' => '',
+            'errors' => [],
+        ];
     }
 
     public static function allowsAutomatedAccess(?string $url): bool

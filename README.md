@@ -70,8 +70,7 @@ PriceBuddy is designed to be useful from more than the web UI. The tool ecosyste
 | Tool | What it is for |
 | --- | --- |
 | [PriceBuddy CLI](https://github.com/jez500/pricebuddy-cli) | Command-line access for humans and agents. Sync a local mirror, search products, inspect price history, run deal/drop reports, call the REST API, and expose PriceBuddy through MCP. |
-
-A browser extension is planned.
+| [Local browser companion](browser-companion/README_ES.md) | Confirms the visible USD price in Opera/Chrome when a retailer blocks unattended checks. |
 
 ## Screenshots
 

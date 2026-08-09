@@ -63,7 +63,7 @@ class DealOfferResource extends Resource
                     }),
             ])
             ->defaultSort('price')
-            ->poll('60s')
+            ->poll('10s')
             ->paginated(AdminPanelProvider::DEFAULT_PAGINATION)
             ->emptyStateHeading("Searching for today's PC deals")
             ->emptyStateDescription('Create a saved hunt or refresh the starter searches. Results appear here as the background search finishes.')

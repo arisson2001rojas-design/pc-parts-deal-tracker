@@ -4,14 +4,16 @@ return [
     'search_url' => env('DEAL_HUNTER_SEARCH_URL', 'http://searxng:8080/search'),
     'dealnews_feed_url' => env('DEAL_HUNTER_DEALNEWS_FEED_URL', 'https://www.dealnews.com/rss/c93/'),
     'best_buy_api_key' => env('BEST_BUY_API_KEY'),
+    'price_extractor_url' => env('PRICE_EXTRACTOR_URL'),
     'refresh_hours' => (int) env('DEAL_HUNTER_REFRESH_HOURS', 6),
     'max_results_per_store' => (int) env('DEAL_HUNTER_MAX_RESULTS', 10),
+    'auto_verify_per_store' => (int) env('DEAL_HUNTER_AUTO_VERIFY_PER_STORE', 3),
     'image_lookup_limit' => (int) env('DEAL_HUNTER_IMAGE_LOOKUPS', 6),
 
     /*
-     * Discovery uses a search index, not automated checkout or direct store
-     * scraping. Indexed prices can be stale, so every result links to the
-     * retailer for confirmation before purchase.
+     * Discovery uses a search index and trusted feeds. A separate low-frequency
+     * extractor verifies public product pages; checkout remains entirely in the
+     * retailer and every result links back there for final confirmation.
      */
     'retailers' => [
         'amazon' => [

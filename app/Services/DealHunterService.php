@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\ComponentType;
+use App\Jobs\VerifyDealOfferJob;
 use App\Models\DealOffer;
 use App\Models\DealSearch;
 use App\Notifications\DealFoundNotification;
@@ -38,6 +39,8 @@ class DealHunterService
         $offers = collect($this->enrichImages($offers->all()));
 
         $now = now();
+        $autoVerifyLimit = max(0, (int) config('deal_hunter.auto_verify_per_store', 3));
+        $verificationCounts = [];
 
         foreach ($offers as $offer) {
             $hash = hash('sha256', $offer['url']);
@@ -46,10 +49,32 @@ class DealHunterService
                 unset($values['image_url']);
             }
 
-            DealOffer::query()->updateOrCreate(
-                ['deal_search_id' => $search->getKey(), 'url_hash' => $hash],
-                $values
-            );
+            $dealOffer = DealOffer::query()->firstOrNew([
+                'deal_search_id' => $search->getKey(),
+                'url_hash' => $hash,
+            ]);
+            if ($dealOffer->exists
+                && $dealOffer->hasVerifiedPrice()
+                && $values['source'] === 'web_index'
+                && ($values['price'] ?? null) === null) {
+                unset($values['price'], $values['currency'], $values['source'], $values['fetched_at']);
+            }
+            $dealOffer->fill($values)->save();
+
+            $store = (string) $dealOffer->store;
+            $verificationCounts[$store] ??= 0;
+            $fetchedAt = $dealOffer->getAttribute('fetched_at');
+            $verifiedPriceIsStale = in_array($dealOffer->source, ['direct_extract', 'browser_capture'], true)
+                && $fetchedAt !== null
+                && Carbon::parse($fetchedAt)->lte(now()->subHours((int) config('deal_hunter.refresh_hours', 6)));
+            if ($autoVerifyLimit > 0
+                && filled(config('deal_hunter.price_extractor_url'))
+                && ScrapeUrl::allowsAutomatedAccess($dealOffer->url)
+                && ($dealOffer->source === 'web_index' || $verifiedPriceIsStale)
+                && $verificationCounts[$store] < $autoVerifyLimit) {
+                VerifyDealOfferJob::dispatch($dealOffer->getKey());
+                $verificationCounts[$store]++;
+            }
         }
 
         $search->forceFill(['last_searched_at' => $now])->save();
@@ -507,7 +532,7 @@ class DealHunterService
         return $price >= 5 && $price <= 10_000 ? round($price, 2) : null;
     }
 
-    private function notifyWhenTargetReached(?DealSearch $search): void
+    public function notifyWhenTargetReached(?DealSearch $search): void
     {
         if (! $search || $search->target_price === null || ! $search->user) {
             return;

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\ComponentType;
 use App\Models\Product;
 
 class PcComponentPriceGuard
@@ -36,10 +37,32 @@ class PcComponentPriceGuard
             return null;
         }
 
-        $range = self::USD_RANGES[$product->component_type->value] ?? null;
+        return self::rejectionReasonForComponent(
+            $product->component_type,
+            $normalizedPrice,
+            $configuredCurrency,
+        );
+    }
+
+    public static function rejectionReasonForComponent(
+        ComponentType|string|null $componentType,
+        float $normalizedPrice,
+        string $currency,
+    ): ?string {
+        $currency = strtoupper($currency);
+
+        if ($currency !== 'USD') {
+            return "captured currency {$currency} is not USD";
+        }
+
+        $type = $componentType instanceof ComponentType
+            ? $componentType
+            : ComponentType::tryFrom((string) $componentType);
+        $range = $type ? (self::USD_RANGES[$type->value] ?? null) : null;
+
         if ($range !== null
             && ($normalizedPrice < $range['min'] || $normalizedPrice > $range['max'])) {
-            return "USD price is outside the safe {$product->component_type->getLabel()} range";
+            return "USD price is outside the safe {$type->getLabel()} range";
         }
 
         return null;

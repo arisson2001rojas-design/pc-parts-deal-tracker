@@ -5,9 +5,12 @@
     $source = match ($offer->source) {
         'best_buy_api' => 'Official Best Buy API',
         'dealnews_rss' => 'Curated DealNews feed',
+        'direct_extract' => 'Verified from public product page',
+        'browser_capture' => 'Verified in your browser',
         default => 'Product discovery only',
     };
     $hasVerifiedPrice = $offer->hasVerifiedPrice();
+    $canVerifyInBrowser = $offer->supportsBrowserCapture();
     $underTarget = $hasVerifiedPrice
         && $search?->target_price !== null
         && (float) $offer->price <= (float) $search->target_price;
@@ -68,13 +71,13 @@
                 <span class="text-xs text-gray-500 dark:text-gray-400">Source: {{ $source }}</span>
                 <x-filament::button
                     tag="a"
-                    :href="$offer->url"
+                    :href="$canVerifyInBrowser ? $offer->browserCaptureLaunchUrl() : $offer->url"
                     target="_blank"
                     rel="noopener noreferrer"
                     size="sm"
                     icon="heroicon-m-arrow-top-right-on-square"
                 >
-                    Open store
+                    {{ $canVerifyInBrowser ? 'Open & verify' : 'Open store' }}
                 </x-filament::button>
             </div>
             <p class="mt-3 text-[11px] leading-4 text-gray-400">Verify seller, stock and final price before buying.</p>

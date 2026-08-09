@@ -43,11 +43,12 @@ class PcComponentPriceGuardTest extends TestCase
         $this->assertNull(PcComponentPriceGuard::rejectionReason($product, 'US$329.00', 329, 'USD'));
     }
 
-    public function test_newegg_direct_automation_is_disabled_but_other_retailers_remain_available(): void
+    public function test_only_configured_domains_are_disabled_for_automated_access(): void
     {
-        config()->set('price_buddy.automated_access_disabled_domains', ['newegg.com']);
+        config()->set('price_buddy.automated_access_disabled_domains', ['example.test']);
 
-        $this->assertFalse(ScrapeUrl::allowsAutomatedAccess('https://www.newegg.com/p/N82E16819113941'));
+        $this->assertFalse(ScrapeUrl::allowsAutomatedAccess('https://shop.example.test/product/1'));
+        $this->assertTrue(ScrapeUrl::allowsAutomatedAccess('https://www.newegg.com/p/N82E16819113941'));
         $this->assertTrue(ScrapeUrl::allowsAutomatedAccess('https://www.amazon.com/dp/B000TEST01'));
         $this->assertTrue(ScrapeUrl::allowsAutomatedAccess(null));
     }

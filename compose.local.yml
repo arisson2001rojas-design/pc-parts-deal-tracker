@@ -21,6 +21,7 @@ services:
             SCRAPER_BASE_URL: http://scraper:3000
             DEAL_HUNTER_SEARCH_URL: http://searxng:8080/search
             DEAL_HUNTER_REFRESH_HOURS: ${DEAL_HUNTER_REFRESH_HOURS:-6}
+            PRICE_EXTRACTOR_URL: http://price-extractor:8000
             BEST_BUY_API_KEY: ${BEST_BUY_API_KEY:-}
             AFFILIATE_ENABLED: 'false'
         depends_on:
@@ -28,6 +29,8 @@ services:
                 condition: service_healthy
             searxng:
                 condition: service_started
+            price-extractor:
+                condition: service_healthy
         healthcheck:
             test: ["CMD", "curl", "--fail", "http://localhost/up"]
             interval: 15s
@@ -63,6 +66,15 @@ services:
 
     scraper:
         image: jez500/seleniumbase-scrapper:latest
+        restart: unless-stopped
+
+    price-extractor:
+        build:
+            context: ./docker/price-extractor
+        image: pc-deal-hunter-price-extractor:local
+        environment:
+            ALLOWED_RETAILER_DOMAINS: amazon.com,walmart.com,microcenter.com,newegg.com,bestbuy.com,gamestop.com
+            MIN_HOST_INTERVAL_SECONDS: '3'
         restart: unless-stopped
 
 volumes:

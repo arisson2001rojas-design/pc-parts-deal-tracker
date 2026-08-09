@@ -74,16 +74,24 @@ return [
             ['domain' => 'www.newegg.com'],
         ],
         'scrape_strategy' => [
-            'title' => ['type' => 'schema_org'],
-            'price' => ['type' => 'schema_org'],
-            'image' => ['type' => 'schema_org'],
-            'availability' => ['type' => 'schema_org'],
+            'title' => [
+                'value' => 'h1.product-title',
+                'type' => 'selector',
+            ],
+            'price' => [
+                'value' => '.product-buy-box .price-current',
+                'type' => 'selector',
+            ],
+            'image' => [
+                'value' => 'meta[property="og:image"]|content',
+                'type' => 'selector',
+            ],
         ],
         'settings' => [
             'scraper_service' => ScraperService::Http->value,
             'scraper_service_settings' => '',
         ],
-        'notes' => 'Automated access may be prohibited by Newegg terms and can lead to an IP ban; use only with permission or an approved API.',
+        'notes' => 'Public product pages use the main buy-box price. Requests are low-frequency; verify seller, shipping, and final price before purchase.',
     ],
     [
         'name' => 'Micro Center US',
