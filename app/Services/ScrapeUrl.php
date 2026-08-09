@@ -117,23 +117,25 @@ class ScrapeUrl
         $attempt = 0;
         $output = $this->scrapeWithPriceExtractor() ?? [];
 
-        while ($output === [] && $attempt < $this->maxAttempts) {
-            $attempt++;
+        if ($output === []) {
+            while ($attempt < $this->maxAttempts) {
+                $attempt++;
 
-            // Don't use cache if previous attempt failed.
-            if ($attempt > 1) {
-                $options['use_cache'] = false;
-            }
+                // Don't use cache if previous attempt failed.
+                if ($attempt > 1) {
+                    $options['use_cache'] = false;
+                }
 
-            $output = $this->scrapeUrl($options);
+                $output = $this->scrapeUrl($options);
 
-            if ($output === false) {
-                $attempt = $this->maxAttempts;
-                $output = [];
-            }
+                if ($output === false) {
+                    $attempt = $this->maxAttempts;
+                    $output = [];
+                }
 
-            if (! empty($output['title'])) {
-                break;
+                if (! empty($output['title'])) {
+                    break;
+                }
             }
         }
 
