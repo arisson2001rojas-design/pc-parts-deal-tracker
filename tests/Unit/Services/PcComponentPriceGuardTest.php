@@ -49,5 +49,6 @@ class PcComponentPriceGuardTest extends TestCase
 
         $this->assertFalse(ScrapeUrl::allowsAutomatedAccess('https://www.newegg.com/p/N82E16819113941'));
         $this->assertTrue(ScrapeUrl::allowsAutomatedAccess('https://www.amazon.com/dp/B000TEST01'));
+        $this->assertTrue(ScrapeUrl::allowsAutomatedAccess(null));
     }
 }

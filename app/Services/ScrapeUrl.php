@@ -166,7 +166,7 @@ class ScrapeUrl
         $host = Str::lower((string) parse_url((string) $url, PHP_URL_HOST));
 
         if ($host === '') {
-            return false;
+            return true;
         }
 
         return collect((array) config('price_buddy.automated_access_disabled_domains', []))
