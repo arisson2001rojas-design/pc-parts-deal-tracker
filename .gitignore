@@ -30,6 +30,8 @@ auth.json
 /.phpunit.cache
 .phpunit.result.cache
 .phpactor.json
+__pycache__/
+*.py[cod]
 
 # DB Dumps
 *.sql

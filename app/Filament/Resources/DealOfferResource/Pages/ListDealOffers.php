@@ -4,6 +4,7 @@ namespace App\Filament\Resources\DealOfferResource\Pages;
 
 use App\Enums\ComponentType;
 use App\Filament\Resources\DealOfferResource;
+use App\Filament\Resources\DealOfferResource\Widgets\DealHunterStats;
 use App\Jobs\RefreshDealSearchJob;
 use App\Models\DealOffer;
 use App\Models\DealSearch;
@@ -37,28 +38,31 @@ class ListDealOffers extends ListRecords
     public function getTabs(): array
     {
         return [
-            'recent' => Tab::make('Cheapest (7 days)')
+            'recent' => Tab::make('Más baratas · 7 días')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query
                     ->whereIn('source', DealOffer::VERIFIED_PRICE_SOURCES)
                     ->whereNotNull('price')
+                    ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
                     ->where('fetched_at', '>=', now()->subDays(7))
                 ),
-            'today' => Tab::make('Best today')
+            'today' => Tab::make('Verificadas hoy')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query
                     ->whereIn('source', DealOffer::VERIFIED_PRICE_SOURCES)
                     ->whereNotNull('price')
+                    ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
                     ->whereDate('fetched_at', today())
                 ),
-            'target' => Tab::make('Under target')
+            'target' => Tab::make('Bajo mi objetivo')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query
                     ->whereIn('source', DealOffer::VERIFIED_PRICE_SOURCES)
                     ->whereNotNull('price')
+                    ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
                     ->whereHas('dealSearch', fn (Builder $search): Builder => $search
                         ->whereNotNull('target_price')
                         ->whereColumn('deal_offers.price', '<=', 'deal_searches.target_price')
                     )
                 ),
-            'all' => Tab::make('All discoveries'),
+            'all' => Tab::make('Todo el radar'),
         ];
     }
 
@@ -71,22 +75,28 @@ class ListDealOffers extends ListRecords
     {
         return [
             Actions\Action::make('new_hunt')
-                ->label('Hunt a component')
+                ->label('Nueva cacería')
                 ->icon('heroicon-o-plus')
                 ->form([
-                    Forms\Components\TextInput::make('name')->required()->maxLength(255),
+                    Forms\Components\TextInput::make('name')
+                        ->label('Nombre de la cacería')
+                        ->placeholder('Ej. GPU 1440p barata')
+                        ->required()
+                        ->maxLength(255),
                     Forms\Components\TextInput::make('query')
-                        ->label('Exact component')
+                        ->label('Componente exacto')
+                        ->placeholder('Ej. Radeon RX 7800 XT')
+                        ->helperText('Incluye marca y modelo para evitar resultados parecidos.')
                         ->required()
                         ->maxLength(255),
                     Forms\Components\Select::make('component_type')
-                        ->label('Type')
+                        ->label('Tipo')
                         ->options(collect(ComponentType::cases())->mapWithKeys(
                             fn (ComponentType $type): array => [$type->value => $type->getLabel()]
                         )->all())
                         ->required(),
                     Forms\Components\TextInput::make('target_price')
-                        ->label('Alert price')
+                        ->label('Precio objetivo')
                         ->prefix('$')
                         ->numeric(),
                 ])
@@ -96,10 +106,10 @@ class ListDealOffers extends ListRecords
                         'enabled' => true,
                     ]);
                     RefreshDealSearchJob::dispatch($search->getKey());
-                    Notification::make()->title('Hunt started')->success()->send();
+                    Notification::make()->title('Cacería iniciada')->body('Ya estamos buscando en todas las tiendas.')->success()->send();
                 }),
             Actions\Action::make('refresh')
-                ->label('Search all stores now')
+                ->label('Rastrear ahora')
                 ->icon('heroicon-o-arrow-path')
                 ->action(function (): void {
                     DealSearch::query()
@@ -107,8 +117,18 @@ class ListDealOffers extends ListRecords
                         ->where('enabled', true)
                         ->pluck('id')
                         ->each(fn (int $id) => RefreshDealSearchJob::dispatch($id));
-                    Notification::make()->title('All deal searches queued')->success()->send();
+                    Notification::make()->title('Rastreo iniciado')->body('Las cacerías activas se actualizarán en segundo plano.')->success()->send();
                 }),
         ];
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [DealHunterStats::class];
+    }
+
+    public function getHeaderWidgetsColumns(): int|array
+    {
+        return 1;
     }
 }

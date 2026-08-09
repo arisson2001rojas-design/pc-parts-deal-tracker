@@ -307,12 +307,19 @@ class DealHunterTest extends TestCase
             'url' => 'https://www.newegg.com/p/N82E16800000010',
             'url_hash' => hash('sha256', 'https://www.newegg.com/p/N82E16800000010'),
             'price' => 179.99,
-            'source' => 'web_index',
+            'source' => 'browser_capture',
+            'availability' => DealOffer::AVAILABILITY_IN_STOCK,
             'fetched_at' => now(),
         ]);
         $this->actingAs($user);
 
-        $this->get(DealOfferResource::getUrl('index'))->assertOk();
+        $this->get(DealOfferResource::getUrl('index'))
+            ->assertOk()
+            ->assertSee('Verificar precio')
+            ->assertSee('Historial');
+        $this->get(DealOfferResource::getUrl('view', ['record' => DealOffer::query()->firstOrFail()]))
+            ->assertOk()
+            ->assertSee('Historial verificado por PriceBuddy');
         $this->get(DealSearchResource::getUrl('index'))->assertOk();
     }
 }

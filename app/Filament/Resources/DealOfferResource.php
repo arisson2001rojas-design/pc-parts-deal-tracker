@@ -18,35 +18,38 @@ class DealOfferResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-fire';
 
-    protected static ?string $navigationLabel = 'Deal hunter';
+    protected static ?string $navigationLabel = 'Cazador de ofertas';
 
-    protected static ?string $navigationGroup = 'PC deals';
+    protected static ?string $navigationGroup = 'PC Gaming';
 
     protected static ?string $modelLabel = 'deal';
 
-    protected static ?string $pluralModelLabel = 'deal hunter';
+    protected static ?string $pluralModelLabel = 'ofertas';
 
     protected static ?int $navigationSort = 1;
 
     public static function table(Table $table): Table
     {
         return $table
-            ->heading('Best PC component deals found today')
-            ->description('Fresh discoveries from a deals feed, a web index, and official APIs. Always confirm the current price, seller, stock, tax, and warranty before buying.')
+            ->heading('Radar de ofertas PC Gaming')
+            ->description('Precios en USD verificados en tiendas de Estados Unidos. PriceBuddy separa descubrimientos, precios confirmados y productos agotados.')
             ->columns([
                 DealOfferCardColumn::make('title')
-                    ->label('Offer')
+                    ->label('Oferta')
                     ->searchable(['title', 'store'])
                     ->sortable(),
             ])
             ->contentGrid([
-                'md' => 2,
-                'xl' => 3,
+                'default' => 1,
+                'lg' => 2,
+                '2xl' => 3,
             ])
             ->filters([
                 SelectFilter::make('store')
+                    ->label('Tienda')
                     ->options(collect(config('deal_hunter.retailers', []))->pluck('name', 'name')->all()),
                 SelectFilter::make('component_type')
+                    ->label('Componente')
                     ->options(collect(ComponentType::cases())->mapWithKeys(
                         fn (ComponentType $type): array => [$type->value => $type->getLabel()]
                     )->all())
@@ -61,12 +64,23 @@ class DealOfferResource extends Resource
                             )
                         );
                     }),
+                SelectFilter::make('availability')
+                    ->label('Disponibilidad')
+                    ->options([
+                        DealOffer::AVAILABILITY_IN_STOCK => 'Disponible',
+                        DealOffer::AVAILABILITY_UNKNOWN => 'Por confirmar',
+                        DealOffer::AVAILABILITY_OUT_OF_STOCK => 'Agotado',
+                    ]),
             ])
-            ->defaultSort('price')
+            ->defaultSort(fn (Builder $query): Builder => $query
+                ->orderByRaw("CASE availability WHEN 'in_stock' THEN 0 WHEN 'unknown' THEN 1 ELSE 2 END")
+                ->orderByRaw('CASE WHEN price IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('price')
+            )
             ->poll('10s')
             ->paginated(AdminPanelProvider::DEFAULT_PAGINATION)
-            ->emptyStateHeading("Searching for today's PC deals")
-            ->emptyStateDescription('Create a saved hunt or refresh the starter searches. Results appear here as the background search finishes.')
+            ->emptyStateHeading('Buscando ofertas para tu PC')
+            ->emptyStateDescription('Crea una cacería o actualiza las búsquedas. Los resultados aparecerán en cuanto termine el rastreo.')
             ->emptyStateIcon('heroicon-o-fire');
     }
 
@@ -74,7 +88,7 @@ class DealOfferResource extends Resource
     {
         return parent::getEloquentQuery()
             ->currentUser()
-            ->with('dealSearch');
+            ->with(['dealSearch', 'priceSnapshots']);
     }
 
     public static function canCreate(): bool
@@ -84,6 +98,9 @@ class DealOfferResource extends Resource
 
     public static function getPages(): array
     {
-        return ['index' => Pages\ListDealOffers::route('/')];
+        return [
+            'index' => Pages\ListDealOffers::route('/'),
+            'view' => Pages\ViewDealOffer::route('/{record}'),
+        ];
     }
 }

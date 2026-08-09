@@ -57,9 +57,20 @@ class DealHunterService
                 && $dealOffer->hasVerifiedPrice()
                 && $values['source'] === 'web_index'
                 && ($values['price'] ?? null) === null) {
-                unset($values['price'], $values['currency'], $values['source'], $values['fetched_at']);
+                unset(
+                    $values['price'],
+                    $values['currency'],
+                    $values['source'],
+                    $values['availability'],
+                    $values['fetched_at'],
+                );
             }
             $dealOffer->fill($values)->save();
+            if ($dealOffer->hasVerifiedPrice()
+                && isset($values['price'])
+                && in_array($values['source'] ?? null, DealOffer::VERIFIED_PRICE_SOURCES, true)) {
+                $dealOffer->recordPriceSnapshot();
+            }
 
             $store = (string) $dealOffer->store;
             $verificationCounts[$store] ??= 0;
@@ -264,6 +275,7 @@ class DealHunterService
             'price' => null,
             'currency' => 'USD',
             'source' => 'web_index',
+            'availability' => DealOffer::AVAILABILITY_UNKNOWN,
         ];
     }
 
@@ -420,6 +432,7 @@ class DealHunterService
                     'price' => isset($product['salePrice']) ? (float) $product['salePrice'] : null,
                     'currency' => 'USD',
                     'source' => 'best_buy_api',
+                    'availability' => DealOffer::AVAILABILITY_IN_STOCK,
                 ])
                 ->filter(fn (array $offer): bool => str_starts_with($offer['url'], 'https://'))
                 ->values()

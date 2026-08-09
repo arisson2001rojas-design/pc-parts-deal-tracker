@@ -52,6 +52,23 @@
     return String(hint || "USD").toUpperCase();
   }
 
+  function normalizeAvailability(raw) {
+    const value = String(raw || "").toLowerCase().replaceAll("_", " ");
+    if (/out\s*of\s*stock|sold\s*out|unavailable|not\s*available|agotado|sin\s*existencias/.test(value)) {
+      return "out_of_stock";
+    }
+    if (/in\s*stock|limited\s*stock|available|disponible|preorder/.test(value)) {
+      return "in_stock";
+    }
+    return "unknown";
+  }
+
+  function sellerName(raw) {
+    if (typeof raw === "string") return raw.trim() || null;
+    if (raw && typeof raw === "object") return String(raw.name || raw.legalName || "").trim() || null;
+    return null;
+  }
+
   function parseAmount(raw) {
     const matches = String(raw || "").match(/(?:\d{1,3}(?:[\s,.]\d{3})+|\d+)(?:[,.]\d{1,2})?/g);
     if (!matches?.length) return null;
@@ -124,6 +141,8 @@
   function extractJsonLd(candidates) {
     let title = null;
     let image = null;
+    let availability = "unknown";
+    let seller = null;
     document.querySelectorAll("script[type='application/ld+json']").forEach((script) => {
       let data;
       try { data = JSON.parse(script.textContent); } catch (_error) { return; }
@@ -144,10 +163,12 @@
             0.90,
             offer.priceCurrency ?? specification.priceCurrency
           );
+          if (availability === "unknown") availability = normalizeAvailability(offer.availability);
+          seller ||= sellerName(offer.seller);
         });
       });
     });
-    return { title, image };
+    return { title, image, availability, seller };
   }
 
   function extractWalmart(candidates) {
@@ -162,11 +183,53 @@
       addCandidate(candidates, current?.price, "embedded_data", 0.98, current?.currencyCode);
       return {
         title: product?.name || null,
-        image: product?.imageInfo?.thumbnailUrl || product?.imageInfo?.allImages?.[0]?.url || null
+        image: product?.imageInfo?.thumbnailUrl || product?.imageInfo?.allImages?.[0]?.url || null,
+        availability: normalizeAvailability(product?.availabilityStatus || product?.availabilityStatusV2),
+        seller: sellerName(product?.sellerDisplayName || product?.sellerName || product?.seller)
       };
     } catch (_error) {
       return {};
     }
+  }
+
+  function pageAvailability(domain) {
+    const selectors = {
+      "amazon.com": ["#availability", "#outOfStock", "#buybox-see-all-buying-choices"],
+      "walmart.com": ["[data-automation-id='fulfillment-shipping']", "[data-automation-id='product-availability']"],
+      "microcenter.com": [".inventory", ".inventoryCnt", ".stock"],
+      "newegg.com": [".product-inventory", ".product-buy-box"],
+      "bestbuy.com": [".fulfillment-add-to-cart-button", "[data-testid='fulfillment-add-to-cart-button']"],
+      "gamestop.com": [".availability-msg", ".product-availability"]
+    };
+    const text = (selectors[domain] || [])
+      .flatMap((selector) => [...document.querySelectorAll(selector)].slice(0, 3))
+      .map((element) => element.textContent || element.getAttribute?.("aria-label") || "")
+      .join(" ");
+    const explicit = normalizeAvailability(text);
+    if (explicit !== "unknown") return explicit;
+
+    const buyButton = document.querySelector(
+      "#add-to-cart-button, [data-automation-id='atc'], .btn-primary.btn-wide, .add-to-cart-button"
+    );
+    return buyButton && !buyButton.disabled && buyButton.getAttribute("aria-disabled") !== "true"
+      ? "in_stock"
+      : "unknown";
+  }
+
+  function pageSeller(domain) {
+    const selectors = {
+      "amazon.com": ["#sellerProfileTriggerId", "#merchant-info"],
+      "walmart.com": ["[data-automation-id='seller-name']", "[data-testid='seller-name']"],
+      "microcenter.com": ["[itemprop='seller']"],
+      "newegg.com": [".product-seller", ".product-seller-info"],
+      "bestbuy.com": ["[data-testid='marketplace-seller-name']"],
+      "gamestop.com": ["[itemprop='seller']"]
+    };
+    for (const selector of selectors[domain] || []) {
+      const value = document.querySelector(selector)?.textContent?.trim();
+      if (value) return value.replace(/^sold\s+by\s+/i, "").slice(0, 255);
+    }
+    return null;
   }
 
   function extract() {
@@ -204,11 +267,19 @@
       || structured.image
       || document.querySelector("meta[property='og:image']")?.content
       || null;
+    const availability = embedded.availability && embedded.availability !== "unknown"
+      ? embedded.availability
+      : structured.availability !== "unknown"
+        ? structured.availability
+        : pageAvailability(domain);
+    const seller = embedded.seller || structured.seller || pageSeller(domain);
 
     return {
       page_url: location.href.split("#")[0],
       title: String(title || "").trim(),
       image_url: image,
+      availability,
+      seller,
       candidates: candidates.slice(0, 20)
     };
   }

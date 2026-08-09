@@ -30,6 +30,8 @@ class BrowserPriceCaptureTest extends TestCase
                 'page_url' => 'https://www.newegg.com/p/N82E16819113941',
                 'title' => 'AMD Ryzen 7 7700X3D Desktop Processor',
                 'image_url' => 'https://c1.neweggimages.com/productimage.jpg',
+                'availability' => 'in_stock',
+                'seller' => 'Newegg',
                 'candidates' => [
                     ['price' => 159.99, 'currency' => 'USD', 'source' => 'site_specific', 'confidence' => 0.98],
                     ['price' => 159.99, 'currency' => 'USD', 'source' => 'meta', 'confidence' => 0.88],
@@ -37,12 +39,58 @@ class BrowserPriceCaptureTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('data.price', 159.99)
-            ->assertJsonPath('data.currency', 'USD');
+            ->assertJsonPath('data.currency', 'USD')
+            ->assertJsonPath('data.availability', 'in_stock')
+            ->assertJsonPath('data.seller', 'Newegg');
 
         $offer->refresh();
         $this->assertSame('browser_capture', $offer->source);
         $this->assertSame('159.99', $offer->price);
+        $this->assertSame('in_stock', $offer->availability);
+        $this->assertSame('Newegg', $offer->seller);
         $this->assertTrue($offer->hasVerifiedPrice());
+        $this->assertDatabaseHas('deal_offer_prices', [
+            'deal_offer_id' => $offer->getKey(),
+            'price' => 159.99,
+            'source' => 'browser_capture',
+        ]);
+    }
+
+    public function test_price_changes_are_kept_as_history(): void
+    {
+        $offer = $this->offer();
+        $payload = [
+            'page_url' => 'https://www.newegg.com/p/N82E16819113941',
+            'title' => 'AMD Ryzen 7 7700X3D Desktop Processor',
+            'availability' => 'in_stock',
+            'candidates' => [
+                ['price' => 329, 'currency' => 'USD', 'source' => 'site_specific', 'confidence' => 0.98],
+            ],
+        ];
+
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson($this->signedUrl($offer), $payload)
+            ->assertOk();
+
+        $payload['candidates'][0]['price'] = 299;
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson($this->signedUrl($offer), $payload)
+            ->assertOk();
+
+        $this->assertSame(
+            [329.0, 299.0],
+            $offer->priceSnapshots()->orderBy('id')->pluck('price')->map(fn ($price): float => (float) $price)->all(),
+        );
+    }
+
+    public function test_amazon_offers_generate_keepa_history_links_without_using_browser_cookies(): void
+    {
+        $offer = $this->offer();
+        $offer->forceFill(['url' => 'https://www.amazon.com/dp/B0ABC12345'])->save();
+
+        $this->assertSame('B0ABC12345', $offer->amazonAsin());
+        $this->assertStringContainsString('asin=B0ABC12345', $offer->keepaGraphUrl());
+        $this->assertSame('https://keepa.com/#!product/1-B0ABC12345', $offer->keepaProductUrl());
     }
 
     public function test_an_unsigned_capture_is_rejected(): void

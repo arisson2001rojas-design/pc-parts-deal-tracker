@@ -22,6 +22,8 @@ class ExtractorTest(unittest.TestCase):
                 'name': 'AMD Ryzen 5 5600X',
                 'priceInfo': {'currentPrice': {'price': 119.99, 'currencyCode': 'USD'}},
                 'imageInfo': {'thumbnailUrl': 'https://images.example/cpu.jpg'},
+                'availabilityStatus': 'OUT_OF_STOCK',
+                'sellerDisplayName': 'Marketplace Seller',
             }}}}},
         }
         result = extract_document(
@@ -31,6 +33,8 @@ class ExtractorTest(unittest.TestCase):
 
         self.assertEqual('AMD Ryzen 5 5600X', result['title'])
         self.assertEqual('embedded_data', result['candidates'][0]['source'])
+        self.assertEqual('out_of_stock', result['availability'])
+        self.assertEqual('Marketplace Seller', result['seller'])
 
     def test_localized_currency_is_preserved_for_server_validation(self):
         result = extract_document(

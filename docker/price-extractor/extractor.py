@@ -79,6 +79,23 @@ def _currency(raw: str, hint: str | None = None) -> str:
     return (hint or "USD").upper()
 
 
+def _availability(raw: Any) -> str:
+    value = str(raw or "").lower().replace("_", " ")
+    if re.search(r"out\s*of\s*stock|sold\s*out|unavailable|not\s*available|agotado|sin\s*existencias", value):
+        return "out_of_stock"
+    if re.search(r"in\s*stock|limited\s*stock|available|disponible|preorder", value):
+        return "in_stock"
+    return "unknown"
+
+
+def _seller_name(raw: Any) -> str | None:
+    if isinstance(raw, str):
+        return raw.strip() or None
+    if isinstance(raw, dict):
+        return str(raw.get("name") or raw.get("legalName") or "").strip() or None
+    return None
+
+
 def _number(raw: str) -> float | None:
     matches = re.findall(r"(?:\d{1,3}(?:[\s,.]\d{3})+|\d+)(?:[,.]\d{1,2})?", raw)
     if not matches:
@@ -165,9 +182,13 @@ def _walk(value: Any) -> Iterable[dict[str, Any]]:
             yield from _walk(child)
 
 
-def _json_ld(soup: BeautifulSoup, candidates: list[Candidate]) -> tuple[str | None, str | None]:
+def _json_ld(
+    soup: BeautifulSoup, candidates: list[Candidate]
+) -> tuple[str | None, str | None, str, str | None]:
     title = None
     image = None
+    availability = "unknown"
+    seller = None
     for script in soup.select('script[type="application/ld+json"]'):
         try:
             data = json.loads(script.string or script.get_text())
@@ -197,23 +218,28 @@ def _json_ld(soup: BeautifulSoup, candidates: list[Candidate]) -> tuple[str | No
                 raw_price = offer.get("price") or offer.get("lowPrice") or specification.get("price")
                 currency = offer.get("priceCurrency") or specification.get("priceCurrency")
                 _add(candidates, raw_price, "json_ld", 0.90, currency)
-    return title, image
+                if availability == "unknown":
+                    availability = _availability(offer.get("availability"))
+                seller = seller or _seller_name(offer.get("seller"))
+    return title, image, availability, seller
 
 
-def _walmart_embedded(soup: BeautifulSoup, candidates: list[Candidate]) -> tuple[str | None, str | None]:
+def _walmart_embedded(
+    soup: BeautifulSoup, candidates: list[Candidate]
+) -> tuple[str | None, str | None, str, str | None]:
     script = soup.select_one("#__NEXT_DATA__")
     if not script:
-        return None, None
+        return None, None, "unknown", None
     try:
         data = json.loads(script.string or script.get_text())
     except (TypeError, json.JSONDecodeError):
-        return None, None
+        return None, None, "unknown", None
 
     props = data.get("props", {}).get("pageProps", {})
     initial = props.get("initialData") or props.get("initialProps") or {}
     product = initial.get("data", {}).get("product", {})
     if not isinstance(product, dict):
-        return None, None
+        return None, None, "unknown", None
     price_info = product.get("priceInfo", {}).get("currentPrice", {})
     _add(candidates, price_info.get("price"), "embedded_data", 0.98, price_info.get("currencyCode"))
     image_info = product.get("imageInfo", {})
@@ -221,7 +247,42 @@ def _walmart_embedded(soup: BeautifulSoup, candidates: list[Candidate]) -> tuple
     image = image_info.get("thumbnailUrl")
     if not image and images and isinstance(images[0], dict):
         image = images[0].get("url")
-    return product.get("name"), image
+    return (
+        product.get("name"),
+        image,
+        _availability(product.get("availabilityStatus") or product.get("availabilityStatusV2")),
+        _seller_name(product.get("sellerDisplayName") or product.get("sellerName") or product.get("seller")),
+    )
+
+
+def _page_availability(soup: BeautifulSoup, domain: str | None) -> str:
+    selectors = {
+        "amazon.com": ("#availability", "#outOfStock"),
+        "walmart.com": ('[data-automation-id="fulfillment-shipping"]', '[data-automation-id="product-availability"]'),
+        "microcenter.com": (".inventory", ".inventoryCnt", ".stock"),
+        "newegg.com": (".product-inventory", ".product-buy-box"),
+        "bestbuy.com": (".fulfillment-add-to-cart-button", '[data-testid="fulfillment-add-to-cart-button"]'),
+        "gamestop.com": (".availability-msg", ".product-availability"),
+    }
+    text = " ".join(
+        element.get_text(" ", strip=True)
+        for selector in selectors.get(domain or "", ())
+        for element in soup.select(selector)[:3]
+    )
+    return _availability(text)
+
+
+def _page_seller(soup: BeautifulSoup, domain: str | None) -> str | None:
+    selectors = {
+        "amazon.com": ("#sellerProfileTriggerId", "#merchant-info"),
+        "walmart.com": ('[data-automation-id="seller-name"]', '[data-testid="seller-name"]'),
+        "newegg.com": (".product-seller", ".product-seller-info"),
+    }
+    for selector in selectors.get(domain or "", ()):
+        element = soup.select_one(selector)
+        if element and element.get_text(" ", strip=True):
+            return re.sub(r"^sold\s+by\s+", "", element.get_text(" ", strip=True), flags=re.IGNORECASE)[:255]
+    return None
 
 
 def extract_document(html: str, url: str) -> dict[str, Any]:
@@ -237,10 +298,11 @@ def extract_document(html: str, url: str) -> dict[str, Any]:
     if currency_meta:
         meta_currency = currency_meta.get("content")
 
-    structured_title, structured_image = _json_ld(soup, candidates)
-    embedded_title = embedded_image = None
+    structured_title, structured_image, structured_availability, structured_seller = _json_ld(soup, candidates)
+    embedded_title = embedded_image = embedded_seller = None
+    embedded_availability = "unknown"
     if domain == "walmart.com":
-        embedded_title, embedded_image = _walmart_embedded(soup, candidates)
+        embedded_title, embedded_image, embedded_availability, embedded_seller = _walmart_embedded(soup, candidates)
 
     for selector in (
         'meta[property="product:price:amount"]',
@@ -268,11 +330,17 @@ def extract_document(html: str, url: str) -> dict[str, Any]:
     image = embedded_image or structured_image
     if not image and image_meta:
         image = image_meta.get("content")
+    availability = embedded_availability if embedded_availability != "unknown" else structured_availability
+    if availability == "unknown":
+        availability = _page_availability(soup, domain)
+    seller = embedded_seller or structured_seller or _page_seller(soup, domain)
 
     return {
         "page_url": url,
         "title": str(title or "").strip(),
         "image_url": str(image).strip() if image else None,
+        "availability": availability,
+        "seller": seller,
         "candidates": [asdict(candidate) for candidate in candidates[:20]],
     }
 

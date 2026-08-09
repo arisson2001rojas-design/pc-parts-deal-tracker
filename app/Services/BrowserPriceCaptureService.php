@@ -50,14 +50,28 @@ class BrowserPriceCaptureService
         );
         $imageUrl = $payload['image_url'] ?? null;
 
-        $offer->forceFill([
+        $updates = [
             'title' => Str::limit($title, 1024, ''),
             'image_url' => is_string($imageUrl) && $imageUrl !== '' ? $imageUrl : $offer->image_url,
             'price' => $winner['price'],
             'currency' => 'USD',
             'source' => $verificationSource,
             'fetched_at' => now(),
-        ])->save();
+        ];
+        if (in_array($payload['availability'] ?? null, [
+            DealOffer::AVAILABILITY_IN_STOCK,
+            DealOffer::AVAILABILITY_OUT_OF_STOCK,
+            DealOffer::AVAILABILITY_UNKNOWN,
+        ], true)) {
+            $updates['availability'] = $payload['availability'];
+        }
+        if (array_key_exists('seller', $payload)) {
+            $seller = trim((string) ($payload['seller'] ?? ''));
+            $updates['seller'] = $seller !== '' ? Str::limit($seller, 255, '') : null;
+        }
+
+        $offer->forceFill($updates)->save();
+        $offer->recordPriceSnapshot();
 
         return $offer->fresh('dealSearch');
     }

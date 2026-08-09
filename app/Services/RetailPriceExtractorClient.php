@@ -9,7 +9,7 @@ use Throwable;
 class RetailPriceExtractorClient
 {
     /**
-     * @return array{page_url: string, title: string, image_url: ?string, candidates: array<int, array<string, mixed>>}|null
+     * @return array{page_url: string, title: string, image_url: ?string, availability?: string, seller?: ?string, candidates: array<int, array<string, mixed>>}|null
      */
     public function extract(DealOffer $offer): ?array
     {
@@ -17,7 +17,7 @@ class RetailPriceExtractorClient
     }
 
     /**
-     * @return array{page_url: string, title: string, image_url: ?string, candidates: array<int, array<string, mixed>>}|null
+     * @return array{page_url: string, title: string, image_url: ?string, availability?: string, seller?: ?string, candidates: array<int, array<string, mixed>>}|null
      */
     public function extractUrl(string $url): ?array
     {
@@ -53,7 +53,7 @@ class RetailPriceExtractorClient
             return null;
         }
 
-        return [
+        $payload = [
             'page_url' => $data['page_url'],
             'title' => trim($data['title']),
             'image_url' => is_string($data['image_url'] ?? null) && $this->isHttpUrl($data['image_url'])
@@ -61,6 +61,15 @@ class RetailPriceExtractorClient
                 : null,
             'candidates' => array_values($data['candidates']),
         ];
+
+        if (in_array($data['availability'] ?? null, ['in_stock', 'out_of_stock', 'unknown'], true)) {
+            $payload['availability'] = $data['availability'];
+        }
+        if (array_key_exists('seller', $data)) {
+            $payload['seller'] = is_string($data['seller']) ? trim($data['seller']) : null;
+        }
+
+        return $payload;
     }
 
     private function supports(string $url): bool

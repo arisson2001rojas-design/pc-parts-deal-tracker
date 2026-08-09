@@ -21,13 +21,13 @@ class DealSearchResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-magnifying-glass';
 
-    protected static ?string $navigationLabel = 'Saved hunts';
+    protected static ?string $navigationLabel = 'Mis cacerías';
 
-    protected static ?string $navigationGroup = 'PC deals';
+    protected static ?string $navigationGroup = 'PC Gaming';
 
-    protected static ?string $modelLabel = 'saved hunt';
+    protected static ?string $modelLabel = 'cacería';
 
-    protected static ?string $pluralModelLabel = 'saved hunts';
+    protected static ?string $pluralModelLabel = 'cacerías';
 
     protected static ?int $navigationSort = 2;
 
@@ -35,28 +35,28 @@ class DealSearchResource extends Resource
     {
         return $form->schema([
             Forms\Components\TextInput::make('name')
-                ->label('Name')
+                ->label('Nombre')
                 ->required()
                 ->maxLength(255),
             Forms\Components\TextInput::make('query')
-                ->label('Exact component to hunt')
-                ->helperText('Use a specific model, capacity, and variant for cleaner price comparisons.')
+                ->label('Componente exacto')
+                ->helperText('Usa marca, modelo, capacidad y variante para comparar productos equivalentes.')
                 ->required()
                 ->maxLength(255),
             Forms\Components\Select::make('component_type')
-                ->label('Component type')
+                ->label('Tipo de componente')
                 ->options(collect(ComponentType::cases())->mapWithKeys(
                     fn (ComponentType $type): array => [$type->value => $type->getLabel()]
                 )->all())
                 ->required(),
             Forms\Components\TextInput::make('target_price')
-                ->label('Alert price')
+                ->label('Precio objetivo')
                 ->prefix('$')
                 ->numeric()
                 ->minValue(1)
-                ->helperText('You will be notified when a discovered price reaches this amount.'),
+                ->helperText('Recibirás una alerta cuando un precio verificado llegue a este monto.'),
             Forms\Components\Toggle::make('enabled')
-                ->label('Refresh automatically')
+                ->label('Rastrear automáticamente')
                 ->default(true),
         ])->columns(2);
     }
@@ -66,39 +66,39 @@ class DealSearchResource extends Resource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('component_type')
-                    ->label('Type')
+                    ->label('Tipo')
                     ->badge()
                     ->formatStateUsing(fn (ComponentType $state): string => $state->getLabel())
                     ->color(fn (ComponentType $state): string => $state->getColor()),
                 Tables\Columns\TextColumn::make('name')
-                    ->label('Hunt')
+                    ->label('Cacería')
                     ->searchable()
                     ->sortable()
                     ->description(fn (DealSearch $record): string => $record->query),
                 Tables\Columns\TextColumn::make('target_price')
-                    ->label('Alert at')
+                    ->label('Objetivo')
                     ->money('USD')
-                    ->placeholder('No target'),
+                    ->placeholder('Sin objetivo'),
                 Tables\Columns\TextColumn::make('offers_min_price')
-                    ->label('Best found')
+                    ->label('Mejor precio')
                     ->money('USD')
-                    ->placeholder('Waiting'),
+                    ->placeholder('Esperando'),
                 Tables\Columns\TextColumn::make('last_searched_at')
-                    ->label('Last search')
+                    ->label('Último rastreo')
                     ->since()
                     ->dateTimeTooltip()
-                    ->placeholder('Never'),
+                    ->placeholder('Nunca'),
                 Tables\Columns\IconColumn::make('enabled')
-                    ->label('Automatic')
+                    ->label('Automática')
                     ->boolean(),
             ])
             ->actions([
                 Tables\Actions\Action::make('refresh')
-                    ->label('Search now')
+                    ->label('Rastrear ahora')
                     ->icon('heroicon-o-arrow-path')
                     ->action(function (DealSearch $record): void {
                         RefreshDealSearchJob::dispatch($record->getKey());
-                        Notification::make()->title('Deal search queued')->success()->send();
+                        Notification::make()->title('Rastreo iniciado')->success()->send();
                     }),
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make(),
