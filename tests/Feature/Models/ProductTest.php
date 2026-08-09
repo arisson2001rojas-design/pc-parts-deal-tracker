@@ -123,7 +123,7 @@ class ProductTest extends TestCase
     public function test_primary_image_with_fallback()
     {
         $product = $this->createOneProductWithUrlAndPrices(attrs: ['image' => '']);
-        $this->assertEquals(asset('/images/placeholder.png'), $product->primary_image);
+        $this->assertEquals(asset('/images/pc-part-placeholder.svg'), $product->primary_image);
 
         $product->update(['image' => 'https://example.com/image.png']);
         $this->assertEquals('https://example.com/image.png', $product->primary_image);
