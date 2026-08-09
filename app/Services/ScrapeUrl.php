@@ -109,6 +109,10 @@ class ScrapeUrl
 
     public function scrape(array $options = []): array
     {
+        if (! self::allowsAutomatedAccess($this->url)) {
+            return ['blocked' => true];
+        }
+
         $attempt = 0;
         $output = [];
 
@@ -155,6 +159,21 @@ class ScrapeUrl
         }
 
         return $output;
+    }
+
+    public static function allowsAutomatedAccess(?string $url): bool
+    {
+        $host = Str::lower((string) parse_url((string) $url, PHP_URL_HOST));
+
+        if ($host === '') {
+            return false;
+        }
+
+        return collect((array) config('price_buddy.automated_access_disabled_domains', []))
+            ->filter(fn (mixed $domain): bool => is_string($domain) && $domain !== '')
+            ->doesntContain(fn (string $domain): bool => $host === Str::lower($domain)
+                || str_ends_with($host, '.'.Str::lower($domain))
+            );
     }
 
     protected function scrapeUrl(array $options = []): array|false

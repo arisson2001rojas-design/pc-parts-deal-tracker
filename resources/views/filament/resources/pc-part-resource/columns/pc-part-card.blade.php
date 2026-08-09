@@ -7,7 +7,7 @@
     $bestStore = data_get($product?->price_cache, '0.store_name');
 @endphp
 
-<article class="flex h-full min-h-[24rem] flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-950/10 transition hover:-translate-y-0.5 hover:shadow-lg dark:bg-gray-900 dark:ring-white/10">
+<article class="pc-deal-card flex h-full min-h-[24rem] flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-950/10 transition hover:-translate-y-0.5 hover:shadow-lg dark:bg-gray-900 dark:ring-white/10">
     <div class="relative">
         <x-pc-part-visual
             :src="$product?->image"

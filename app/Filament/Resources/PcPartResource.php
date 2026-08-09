@@ -38,7 +38,7 @@ class PcPartResource extends Resource
     {
         return $table
             ->heading('Cheapest monitored PC parts today')
-            ->description('The catalog comes from BuildCores OpenDB (ODC-By 1.0). Prices are successful checks from Amazon, Walmart, and Newegg; they exclude tax, shipping, and import costs.')
+            ->description('The catalog comes from BuildCores OpenDB (ODC-By 1.0). Numeric prices only appear after a trusted check; Newegg discoveries use curated feeds because direct automated access is not permitted.')
             ->columns([
                 PcPartCardColumn::make('name')
                     ->label('Component')
@@ -67,7 +67,7 @@ class PcPartResource extends Resource
                         $tracking->track($record, auth()->id());
                         Notification::make()
                             ->title('Price check queued')
-                            ->body('Amazon, Walmart, and Newegg will be checked when identifiers are available.')
+                            ->body('Approved retailer checks were queued. Newegg links are discovered through curated deal feeds.')
                             ->success()
                             ->send();
                     }),

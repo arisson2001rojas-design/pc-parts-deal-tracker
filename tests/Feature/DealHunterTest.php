@@ -31,7 +31,7 @@ class DealHunterTest extends TestCase
         Cache::forget('deal-hunter:dealnews-components-feed');
     }
 
-    public function test_it_collects_indexed_store_prices_and_notifies_below_target(): void
+    public function test_it_keeps_indexed_store_prices_unverified_and_does_not_notify(): void
     {
         config()->set('deal_hunter.retailers', [
             'amazon' => [
@@ -74,9 +74,9 @@ class DealHunterTest extends TestCase
 
         $this->assertSame(1, $count);
         $offer = DealOffer::query()->firstOrFail();
-        $this->assertSame('89.99', $offer->price);
+        $this->assertNull($offer->price);
         $this->assertNotNull($search->fresh()->last_searched_at);
-        Notification::assertSentTo($user, DealFoundNotification::class);
+        Notification::assertNothingSent();
         Http::assertSent(fn (Request $request): bool => str_starts_with($request->url(), 'http://searxng.test/search?'));
     }
 
@@ -89,14 +89,18 @@ class DealHunterTest extends TestCase
                 'product_path_pattern' => '~/(?:dp|gp/product)/[A-Z0-9]{10}(?:[/?]|$)~i',
             ],
         ]);
+        config()->set('deal_hunter.best_buy_api_key', 'test-key');
         config()->set('deal_hunter.search_url', 'http://searxng.test/search');
         Notification::fake();
         Http::fake([
-            '*' => Http::response([
-                'results' => [[
-                    'title' => '1TB NVMe SSD $49.99',
-                    'url' => 'https://amazon.com/dp/B000DEAL02',
-                    'content' => '',
+            'searxng.test/*' => Http::response(['results' => []]),
+            'api.bestbuy.com/*' => Http::response([
+                'products' => [[
+                    'name' => '1TB NVMe SSD',
+                    'salePrice' => 49.99,
+                    'url' => 'https://www.bestbuy.com/site/test/12345.p',
+                    'image' => 'https://images.example.test/ssd.jpg',
+                    'onlineAvailability' => true,
                 ]],
             ]),
         ]);

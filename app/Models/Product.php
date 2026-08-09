@@ -678,14 +678,18 @@ class Product extends Model
      */
     public function updatePrices(): \Illuminate\Database\Eloquent\Collection
     {
-        $failed = $this->urls
-            ->filter(fn (Url $url) => $url->updatePrice() === null) // @phpstan-ignore-line
+        /** @var EloquentCollection<int, Url> $urls */
+        $urls = $this->urls;
+
+        $failed = $urls
+            ->filter(fn (Url $url): bool => ScrapeUrl::allowsAutomatedAccess($url->url))
+            ->filter(fn (Url $url): bool => $url->updatePrice() === null)
             ->values();
 
         $this->updatePriceCache();
         $this->updateInsightsCache();
 
-        return $failed; // @phpstan-ignore-line
+        return $failed;
     }
 
     /**

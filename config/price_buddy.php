@@ -25,6 +25,14 @@ return [
     'scraper_api_url' => env('SCRAPER_BASE_URL', 'http://scraper:3000'),
 
     /*
+    | Retailers whose published terms do not allow automated page access.
+    | Their links can still appear through approved APIs or curated deal feeds.
+    */
+    'automated_access_disabled_domains' => [
+        'newegg.com',
+    ],
+
+    /*
     |--------------------------------------------------------------------------
     | Open PC component catalog.
     |--------------------------------------------------------------------------

@@ -233,7 +233,10 @@ class DealHunterService
             'title' => Str::limit(strip_tags($title), 1024, ''),
             'url' => $url,
             'image_url' => $this->resultImageUrl($result),
-            'price' => $this->extractPrice($result, $title.' '.$snippet),
+            // Search snippets are stale and frequently contain crossed-out,
+            // financing, accessory, or unrelated prices. Keep the discovery,
+            // but only trusted feeds/APIs may publish a numeric deal price.
+            'price' => null,
             'currency' => 'USD',
             'source' => 'web_index',
         ];
@@ -405,21 +408,24 @@ class DealHunterService
      */
     private function enrichImages(array $offers): array
     {
-        $remaining = max(0, (int) config('deal_hunter.image_lookup_limit', 3));
+        $limit = max(0, (int) config('deal_hunter.image_lookup_limit', 6));
+        $indexes = collect($offers)
+            ->filter(fn (array $offer): bool => blank($offer['image_url'] ?? null))
+            ->sortBy(fn (array $offer): array => [
+                $offer['price'] === null ? 1 : 0,
+                (float) ($offer['price'] ?? PHP_FLOAT_MAX),
+            ])
+            ->keys()
+            ->take($limit);
 
-        return array_map(function (array $offer) use (&$remaining): array {
-            if ($remaining === 0 || filled($offer['image_url'] ?? null)) {
-                return $offer;
-            }
-
-            $remaining--;
-            $image = $this->images->find($offer['title']);
+        foreach ($indexes as $index) {
+            $image = $this->images->find($offers[$index]['title']);
             if ($image !== null) {
-                $offer['image_url'] = $image;
+                $offers[$index]['image_url'] = $image;
             }
+        }
 
-            return $offer;
-        }, $offers);
+        return $offers;
     }
 
     /** @param array<string, mixed> $result */
@@ -509,7 +515,7 @@ class DealHunterService
 
         $best = $search->offers()
             ->where('fetched_at', '>=', now()->subDay())
-            ->whereNotNull('price')
+            ->verifiedPrice()
             ->orderBy('price')
             ->first();
 

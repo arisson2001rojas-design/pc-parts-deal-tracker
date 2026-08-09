@@ -9,6 +9,7 @@ use App\Services\AiScrapeEnhancer;
 use App\Services\AutoCreateStore;
 use App\Services\Helpers\AffiliateHelper;
 use App\Services\Helpers\CurrencyHelper;
+use App\Services\PcComponentPriceGuard;
 use App\Services\ScrapeUrl;
 use Carbon\Carbon;
 use Database\Factories\UrlFactory;
@@ -19,6 +20,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -334,6 +336,20 @@ class Url extends Model
         }
 
         $priceFloat = CurrencyHelper::toFloat($price, locale: $this->store?->locale, iso: $this->store?->currency);
+        $currency = $this->store->currency ?? CurrencyHelper::getCurrency();
+        $product = $this->product;
+
+        if ($product !== null
+            && ($reason = PcComponentPriceGuard::rejectionReason($product, $price, $priceFloat, $currency))) {
+            Log::channel('db')->warning('Ignored an invalid PC component price', [
+                'url' => $this->url,
+                'product' => $product->title,
+                'reason' => $reason,
+            ]);
+
+            return $this->prices()->latest('id')->first();
+        }
+
         $priceFactor = $this->price_factor ?: 1;
 
         return $this->prices()->create([

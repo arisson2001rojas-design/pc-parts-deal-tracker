@@ -5,6 +5,7 @@ namespace App\Filament\Resources\DealOfferResource\Pages;
 use App\Enums\ComponentType;
 use App\Filament\Resources\DealOfferResource;
 use App\Jobs\RefreshDealSearchJob;
+use App\Models\DealOffer;
 use App\Models\DealSearch;
 use Filament\Actions;
 use Filament\Forms;
@@ -38,16 +39,19 @@ class ListDealOffers extends ListRecords
         return [
             'recent' => Tab::make('Cheapest (7 days)')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query
+                    ->whereIn('source', DealOffer::VERIFIED_PRICE_SOURCES)
                     ->whereNotNull('price')
                     ->where('fetched_at', '>=', now()->subDays(7))
                 ),
             'today' => Tab::make('Best today')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query
+                    ->whereIn('source', DealOffer::VERIFIED_PRICE_SOURCES)
                     ->whereNotNull('price')
                     ->whereDate('fetched_at', today())
                 ),
             'target' => Tab::make('Under target')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query
+                    ->whereIn('source', DealOffer::VERIFIED_PRICE_SOURCES)
                     ->whereNotNull('price')
                     ->whereHas('dealSearch', fn (Builder $search): Builder => $search
                         ->whereNotNull('target_price')

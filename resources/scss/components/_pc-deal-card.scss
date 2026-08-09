@@ -1,0 +1,9 @@
+.fi-ta-content-grid:has(.pc-deal-card) {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 32rem), 1fr)) !important;
+    align-items: stretch;
+}
+
+.fi-ta-content-grid:has(.pc-deal-card) > .fi-ta-record,
+.fi-ta-content-grid:has(.pc-deal-card) .pc-deal-card {
+    min-width: 0;
+}

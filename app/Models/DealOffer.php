@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DealOffer extends Model
 {
+    public const array VERIFIED_PRICE_SOURCES = ['best_buy_api', 'dealnews_rss'];
+
     protected $guarded = [];
 
     protected function casts(): array
@@ -31,5 +33,17 @@ class DealOffer extends Model
         return $query->whereHas('dealSearch', fn (Builder $search): Builder => $search
             ->where('user_id', auth()->id())
         );
+    }
+
+    public function scopeVerifiedPrice(Builder $query): Builder
+    {
+        return $query
+            ->whereNotNull('price')
+            ->whereIn('source', self::VERIFIED_PRICE_SOURCES);
+    }
+
+    public function hasVerifiedPrice(): bool
+    {
+        return $this->price !== null && in_array($this->source, self::VERIFIED_PRICE_SOURCES, true);
     }
 }

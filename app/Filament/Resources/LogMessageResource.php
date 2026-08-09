@@ -37,6 +37,7 @@ class LogMessageResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->description('This is a history of past events, not a list of active failures. Check the timestamp; open View only when you need the technical details.')
             ->columns([
                 Split::make([
                     TextColumn::make('level_name')
@@ -49,7 +50,11 @@ class LogMessageResource extends Resource
                     Tables\Columns\Layout\Stack::make([
                         TextColumn::make('message')
                             ->sortable()
-                            ->searchable(['message']),
+                            ->searchable(['message'])
+                            ->formatStateUsing(fn ($state): string => (string) Str::of((string) $state)
+                                ->replaceMatches('/\s+/', ' ')
+                                ->limit(180))
+                            ->wrap(),
                         TextColumn::make('context.url')
                             ->label('URL')
                             ->searchable(['url'])

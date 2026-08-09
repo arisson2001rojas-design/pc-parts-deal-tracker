@@ -3,22 +3,23 @@
     $search = $offer->dealSearch;
     $type = $search?->component_type;
     $source = match ($offer->source) {
-        'best_buy_api' => 'Best Buy API',
-        'dealnews_rss' => 'DealNews',
-        default => 'Web index',
+        'best_buy_api' => 'Official Best Buy API',
+        'dealnews_rss' => 'Curated DealNews feed',
+        default => 'Product discovery only',
     };
-    $underTarget = $offer->price !== null
+    $hasVerifiedPrice = $offer->hasVerifiedPrice();
+    $underTarget = $hasVerifiedPrice
         && $search?->target_price !== null
         && (float) $offer->price <= (float) $search->target_price;
 @endphp
 
-<article class="flex h-full min-h-[28rem] flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-950/10 transition hover:-translate-y-0.5 hover:shadow-lg dark:bg-gray-900 dark:ring-white/10">
+<article class="pc-deal-card flex h-full min-h-[24rem] flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-950/10 transition hover:-translate-y-0.5 hover:shadow-lg dark:bg-gray-900 dark:ring-white/10">
     <div class="relative">
         <x-pc-part-visual
             :src="$offer->image_url"
             :alt="$offer->title"
             :type="$type"
-            class="h-44 w-full rounded-none border-0 ring-0"
+            class="h-40 w-full rounded-none border-0 ring-0"
         />
 
         <div class="absolute left-3 top-3 flex flex-wrap gap-2">
@@ -28,6 +29,10 @@
             @if ($underTarget)
                 <x-filament::badge color="success" icon="heroicon-m-arrow-trending-down">
                     Under target
+                </x-filament::badge>
+            @elseif (! $hasVerifiedPrice)
+                <x-filament::badge color="warning" icon="heroicon-m-exclamation-triangle">
+                    Live check needed
                 </x-filament::badge>
             @endif
         </div>
@@ -45,7 +50,7 @@
         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Hunt: {{ $search?->name }}</p>
 
         <div class="mt-auto pt-5">
-            @if ($offer->price !== null)
+            @if ($hasVerifiedPrice)
                 <p class="text-3xl font-bold tracking-tight text-success-600 dark:text-success-400">
                     ${{ number_format((float) $offer->price, 2) }}
                 </p>
@@ -55,7 +60,8 @@
                     </p>
                 @endif
             @else
-                <p class="text-lg font-semibold text-gray-700 dark:text-gray-200">Confirm price in store</p>
+                <p class="text-lg font-semibold text-gray-700 dark:text-gray-200">Price not verified</p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Open the retailer to see its current USD price.</p>
             @endif
 
             <div class="mt-4 flex items-center justify-between gap-3">
@@ -68,7 +74,7 @@
                     size="sm"
                     icon="heroicon-m-arrow-top-right-on-square"
                 >
-                    Check price
+                    Open store
                 </x-filament::button>
             </div>
             <p class="mt-3 text-[11px] leading-4 text-gray-400">Verify seller, stock and final price before buying.</p>

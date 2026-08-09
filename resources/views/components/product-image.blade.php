@@ -2,5 +2,5 @@
     :src="$product->image"
     :alt="$product->title"
     :type="$product->component_type"
-    {{ $attributes }}
+    {{ $attributes->class(['h-full w-full']) }}
 />
