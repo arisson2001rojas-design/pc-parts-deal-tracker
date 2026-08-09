@@ -10,6 +10,7 @@
         'dealnews_rss' => 'Oferta publicada por DealNews',
         'direct_extract' => 'Página verificada automáticamente',
         'browser_capture' => 'Verificado en tu navegador',
+        'browser_discovery' => 'Aprendido por el Radar local',
         default => 'Descubrimiento pendiente de verificar',
     };
     $hasVerifiedPrice = $offer->hasVerifiedPrice();

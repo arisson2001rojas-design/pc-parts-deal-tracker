@@ -9,6 +9,7 @@ return [
     'max_results_per_store' => (int) env('DEAL_HUNTER_MAX_RESULTS', 10),
     'auto_verify_per_store' => (int) env('DEAL_HUNTER_AUTO_VERIFY_PER_STORE', 3),
     'image_lookup_limit' => (int) env('DEAL_HUNTER_IMAGE_LOOKUPS', 6),
+    'companion_user_id' => env('BROWSER_COMPANION_USER_ID'),
 
     /*
      * Discovery uses a search index and trusted feeds. A separate low-frequency
@@ -19,7 +20,7 @@ return [
         'amazon' => [
             'name' => 'Amazon',
             'domains' => ['amazon.com'],
-            'product_path_pattern' => '~/(?:dp|gp/product)/[A-Z0-9]{10}(?:[/?]|$)~i',
+            'product_path_pattern' => '~/(?:dp|gp/product|gp/aw/d)/[A-Z0-9]{10}(?:[/?]|$)~i',
         ],
         'walmart' => [
             'name' => 'Walmart',

@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "PriceBuddy Browser Companion",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Verifies PC component prices from the retailer page already open in your browser.",
   "host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*"
   ],
+  "permissions": ["storage"],
   "background": {
     "service_worker": "service-worker.js"
   },
@@ -25,6 +26,7 @@
     }
   ],
   "action": {
-    "default_title": "PriceBuddy Browser Companion"
+    "default_title": "PriceBuddy Radar",
+    "default_popup": "popup.html"
   }
 }

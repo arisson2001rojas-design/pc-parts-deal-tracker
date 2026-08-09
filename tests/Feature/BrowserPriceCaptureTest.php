@@ -83,6 +83,25 @@ class BrowserPriceCaptureTest extends TestCase
         );
     }
 
+    public function test_the_same_price_is_not_duplicated_when_the_verification_source_changes(): void
+    {
+        $offer = $this->offer();
+        $offer->forceFill([
+            'price' => 129.99,
+            'source' => 'browser_capture',
+            'fetched_at' => now(),
+        ])->save();
+        $offer->recordPriceSnapshot();
+
+        $offer->forceFill([
+            'source' => 'browser_discovery',
+            'fetched_at' => now()->addMinute(),
+        ])->save();
+        $offer->recordPriceSnapshot();
+
+        $this->assertDatabaseCount('deal_offer_prices', 1);
+    }
+
     public function test_amazon_offers_generate_keepa_history_links_without_using_browser_cookies(): void
     {
         $offer = $this->offer();

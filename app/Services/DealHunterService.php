@@ -74,7 +74,7 @@ class DealHunterService
             $store = (string) $dealOffer->store;
             $verificationCounts[$store] ??= 0;
             $fetchedAt = $dealOffer->getAttribute('fetched_at');
-            $verifiedPriceIsStale = in_array($dealOffer->source, ['direct_extract', 'browser_capture'], true)
+            $verifiedPriceIsStale = in_array($dealOffer->source, ['direct_extract', 'browser_capture', 'browser_discovery'], true)
                 && $fetchedAt !== null
                 && Carbon::parse($fetchedAt)->lte(now()->subHours((int) config('deal_hunter.refresh_hours', 6)));
             if ($autoVerifyLimit > 0

@@ -3,27 +3,27 @@
 (() => {
   const params = new URLSearchParams(location.hash.slice(1));
   const encodedEndpoint = params.get("pricebuddy");
-  if (!encodedEndpoint) return;
+  let manualEndpoint = null;
 
-  // Remove the short-lived local signature before retailer scripts can retain it.
-  params.delete("pricebuddy");
-  const remainingHash = params.toString();
-  history.replaceState(
-    null,
-    "",
-    `${location.pathname}${location.search}${remainingHash ? `#${remainingHash}` : ""}`
-  );
+  if (encodedEndpoint) {
+    params.delete("pricebuddy");
+    const remainingHash = params.toString();
+    history.replaceState(
+      null,
+      "",
+      `${location.pathname}${location.search}${remainingHash ? `#${remainingHash}` : ""}`
+    );
 
-  let endpoint;
-  try {
-    const padded = encodedEndpoint.replaceAll("-", "+").replaceAll("_", "/")
-      .padEnd(Math.ceil(encodedEndpoint.length / 4) * 4, "=");
-    endpoint = atob(padded);
-  } catch (_error) {
-    return;
+    try {
+      const padded = encodedEndpoint.replaceAll("-", "+").replaceAll("_", "/")
+        .padEnd(Math.ceil(encodedEndpoint.length / 4) * 4, "=");
+      manualEndpoint = atob(padded);
+    } catch (_error) {
+      manualEndpoint = null;
+    }
   }
 
-  function toast(message, state = "working") {
+  function toast(message, state = "working", autoHide = false) {
     let element = document.getElementById("pricebuddy-capture-status");
     if (!element) {
       element = document.createElement("div");
@@ -44,11 +44,12 @@
     }
     element.style.background = state === "error" ? "#991b1b" : state === "success" ? "#065f46" : "#0f766e";
     element.textContent = message;
+    if (autoHide) setTimeout(() => element.remove(), 4200);
   }
 
-  function send(payload) {
+  function send(message) {
     return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: "pricebuddy:capture", endpoint, payload }, (response) => {
+      chrome.runtime.sendMessage(message, (response) => {
         if (chrome.runtime.lastError) {
           resolve({ ok: false, message: chrome.runtime.lastError.message });
         } else {
@@ -58,19 +59,33 @@
     });
   }
 
-  async function run() {
+  function settings() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get({ radarEnabled: true, radarNotifications: true }, resolve);
+    });
+  }
+
+  async function manualCapture() {
     toast("PriceBuddy está comprobando el precio visible…");
     for (const wait of [800, 2200, 4500]) {
       await new Promise((resolve) => setTimeout(resolve, wait));
       const payload = globalThis.PriceBuddyExtractor.extract();
       if (!payload.title || payload.candidates.length === 0) continue;
-      const response = await send(payload);
+      const response = await send({
+        type: "pricebuddy:capture",
+        endpoint: manualEndpoint,
+        payload
+      });
       if (response.ok) {
         const price = Number(response.data?.price).toLocaleString("en-US", {
           style: "currency",
           currency: "USD"
         });
         toast(`Precio confirmado: ${price}. Ya aparece en PriceBuddy.`, "success");
+        const options = await settings();
+        if (options.radarEnabled && payload.component_type) {
+          await send({ type: "pricebuddy:discover", payload });
+        }
         return;
       }
       if (response.message && !/No plausible|found/i.test(response.message)) {
@@ -79,6 +94,35 @@
       }
     }
     toast("No encontré un precio confiable. Confirma que sea la página del producto y que muestre USD.", "error");
+  }
+
+  async function passiveDiscovery() {
+    const options = await settings();
+    if (!options.radarEnabled || !globalThis.PriceBuddyExtractor.isProductPage()) return;
+
+    for (const wait of [1200, 3000, 5000]) {
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      const payload = globalThis.PriceBuddyExtractor.extract();
+      if (!payload.supported_product_page || !payload.component_type || payload.candidates.length === 0) continue;
+
+      const response = await send({ type: "pricebuddy:discover", payload });
+      if (response.ok && !response.skipped && !response.ignored && options.radarNotifications) {
+        const price = Number(response.data?.price).toLocaleString("en-US", {
+          style: "currency",
+          currency: "USD"
+        });
+        toast(`Radar PriceBuddy: ${payload.component_type.toUpperCase()} guardado a ${price}.`, "success", true);
+      }
+      return;
+    }
+  }
+
+  function run() {
+    if (manualEndpoint) {
+      manualCapture();
+    } else {
+      passiveDiscovery();
+    }
   }
 
   if (document.readyState === "loading") {

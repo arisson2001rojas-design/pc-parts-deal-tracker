@@ -34,11 +34,40 @@
     ]
   };
 
+  const PRODUCT_PATHS = {
+    "amazon.com": /\/(?:dp|gp\/product|gp\/aw\/d)\/[A-Z0-9]{10}(?:[/?]|$)/i,
+    "walmart.com": /\/ip\/(?:[^/]+\/)?[0-9]+(?:[/?]|$)/i,
+    "microcenter.com": /\/product\/[0-9]+(?:[/?]|$)/i,
+    "newegg.com": /\/p\/[A-Z0-9-]{8,}(?:[/?]|$)/i,
+    "bestbuy.com": /\/(?:product\/[^/?]+\/[A-Z0-9]+|site\/[^/?]+\/[0-9]+\.p)(?:[/?]|$)/i,
+    "gamestop.com": /\/products\/.+\/[0-9]+\.html(?:[/?]|$)/i
+  };
+
   const EXCLUDED = /coupon|savings?|list[-_ ]?price|regular[-_ ]?price|was[-_ ]?price|installment|monthly|per[-_ ]?month|affirm|klarna|afterpay|trade[-_ ]?in|rebate/i;
 
   function domainFor(hostname) {
     const host = hostname.toLowerCase().replace(/^www\./, "");
     return Object.keys(STORE_SELECTORS).find((domain) => host === domain || host.endsWith(`.${domain}`));
+  }
+
+  function isProductPage(rawUrl = location.href) {
+    let url;
+    try { url = new URL(rawUrl); } catch (_error) { return false; }
+    const domain = domainFor(url.hostname);
+    return Boolean(domain && PRODUCT_PATHS[domain]?.test(`${url.pathname}${url.search}`));
+  }
+
+  function detectComponentType(title) {
+    const value = String(title || "").trim();
+    if (!value || /\b(?:laptop|notebook|chromebook|gaming\s+pc|desktop\s+computer|prebuilt|all-in-one|motherboard|mainboard|heatsink|water\s+block|thermal\s+paste|enclosure|adapter|replacement\s+fan|extension\s+cable|graphics?\s+card\s+(?:holder|support))\b|\bcpu.{0,20}(?:cooler|fan)\b|\b(?:cooler|fan).{0,20}cpu\b|\b(?:power|psu).{0,20}cable\b/i.test(value)) {
+      return null;
+    }
+    if (/\b(?:cpu|processor|ryzen|athlon|threadripper|celeron|pentium|core\s+(?:ultra\s+)?[i3579])\b/i.test(value)) return "cpu";
+    if (/\b(?:gpu|graphics?\s+card|video\s+card|geforce|radeon|intel\s+arc)\b/i.test(value)) return "gpu";
+    if (/\b(?:psu|power\s+suppl(?:y|ies))\b/i.test(value)) return "psu";
+    if (/\b(?:ssd|solid[ -]state|nvme)\b/i.test(value)) return "ssd";
+    if (/\b(?:ram|ddr[345]|so-?dimm)\b/i.test(value) && /\b(?:ram|memory|ddr[345]|so-?dimm)\b/i.test(value)) return "ram";
+    return null;
   }
 
   function detectCurrency(raw, hint = "USD") {
@@ -143,6 +172,8 @@
     let image = null;
     let availability = "unknown";
     let seller = null;
+    let manufacturer = null;
+    let partNumber = null;
     document.querySelectorAll("script[type='application/ld+json']").forEach((script) => {
       let data;
       try { data = JSON.parse(script.textContent); } catch (_error) { return; }
@@ -150,6 +181,8 @@
         const types = Array.isArray(item["@type"]) ? item["@type"] : [item["@type"]];
         if (!types.includes("Product")) return;
         title ||= typeof item.name === "string" ? item.name : null;
+        manufacturer ||= sellerName(item.brand || item.manufacturer);
+        partNumber ||= String(item.mpn || item.model || item.sku || "").trim() || null;
         const rawImage = Array.isArray(item.image) ? item.image[0] : item.image;
         image ||= typeof rawImage === "string" ? rawImage : rawImage?.url || null;
         const offers = Array.isArray(item.offers) ? item.offers : [item.offers];
@@ -168,7 +201,7 @@
         });
       });
     });
-    return { title, image, availability, seller };
+    return { title, image, availability, seller, manufacturer, partNumber };
   }
 
   function extractWalmart(candidates) {
@@ -273,6 +306,7 @@
         ? structured.availability
         : pageAvailability(domain);
     const seller = embedded.seller || structured.seller || pageSeller(domain);
+    const componentType = detectComponentType(title);
 
     return {
       page_url: location.href.split("#")[0],
@@ -280,6 +314,10 @@
       image_url: image,
       availability,
       seller,
+      manufacturer: structured.manufacturer,
+      part_number: structured.partNumber,
+      component_type: componentType,
+      supported_product_page: isProductPage(),
       candidates: candidates.slice(0, 20)
     };
   }
@@ -288,6 +326,8 @@
     extract,
     parseAmount,
     detectCurrency,
+    isProductPage,
+    detectComponentType,
     __testing: {
       elementText,
       selectorsFor: (domain) => [...(STORE_SELECTORS[domain] || [])]

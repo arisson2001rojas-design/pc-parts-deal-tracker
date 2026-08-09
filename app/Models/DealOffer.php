@@ -22,6 +22,7 @@ class DealOffer extends Model
         'dealnews_rss',
         'direct_extract',
         'browser_capture',
+        'browser_discovery',
     ];
 
     protected $guarded = [];
@@ -78,7 +79,6 @@ class DealOffer extends Model
         if ($latest
             && (float) $latest->price === (float) $this->price
             && $latest->currency === $this->currency
-            && $latest->source === $this->source
             && abs(Carbon::parse($latest->captured_at)->diffInSeconds($capturedAt, false)) < 300) {
             return $latest;
         }

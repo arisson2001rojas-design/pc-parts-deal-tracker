@@ -9,7 +9,7 @@ use Illuminate\Validation\ValidationException;
 class BrowserPriceCaptureService
 {
     private const array PRODUCT_PATTERNS = [
-        'amazon.com' => '~/(?:dp|gp/product)/([A-Z0-9]{10})(?:[/?]|$)~i',
+        'amazon.com' => '~/(?:dp|gp/product|gp/aw/d)/([A-Z0-9]{10})(?:[/?]|$)~i',
         'walmart.com' => '~/ip/(?:[^/]+/)?([0-9]+)(?:[/?]|$)~i',
         'microcenter.com' => '~/product/([0-9]+)(?:[/?]|$)~i',
         'newegg.com' => '~/p/([A-Z0-9-]{8,})(?:[/?]|$)~i',
