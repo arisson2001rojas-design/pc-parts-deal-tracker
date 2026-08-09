@@ -43,5 +43,10 @@ if [ -n "${LANDO_INFO:-}" ]; then
     pecl install xdebug && docker-php-ext-enable xdebug
 fi
 
+# Docker can preserve Apache's PID file when a container is stopped. If that
+# PID is reused by cron on the next boot, Apache mistakes cron for itself and
+# exits without serving HTTP.
+rm -f /var/run/apache2/apache2.pid /run/apache2/apache2.pid
+
 # Start supervisor that handles cron and apache
 supervisord -c /etc/supervisor/conf.d/supervisord.conf
