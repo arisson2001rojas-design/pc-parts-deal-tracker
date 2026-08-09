@@ -18,9 +18,9 @@
       "[itemprop='price']"
     ],
     "newegg.com": [
+      ".product-buy-box .price-current_2026",
       ".product-buy-box .price-current",
-      ".product-price .price-current",
-      ".price-current"
+      ".product-buy-box [data-pp-placement='product'][data-pp-amount]"
     ],
     "bestbuy.com": [
       ".priceView-customer-price span",
@@ -91,7 +91,7 @@
   }
 
   function elementText(element) {
-    for (const attribute of ["content", "data-price", "data-price-amount", "aria-label"]) {
+    for (const attribute of ["content", "data-price", "data-price-amount", "data-pp-amount", "aria-label"]) {
       const value = element.getAttribute?.(attribute);
       if (value?.trim()) return value.trim();
     }
@@ -284,5 +284,13 @@
     };
   }
 
-  globalThis.PriceBuddyExtractor = { extract, parseAmount, detectCurrency };
+  globalThis.PriceBuddyExtractor = {
+    extract,
+    parseAmount,
+    detectCurrency,
+    __testing: {
+      elementText,
+      selectorsFor: (domain) => [...(STORE_SELECTORS[domain] || [])]
+    }
+  };
 })();

@@ -33,6 +33,7 @@ jobs:
         name: Install front-end dependencies
         run: |
           npm install
+          npm run test:browser-companion
           npm run build
       -
         name: Prepare Laravel Application
