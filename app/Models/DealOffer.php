@@ -139,11 +139,13 @@ class DealOffer extends Model
 
     public function browserCaptureLaunchUrl(): string
     {
-        $endpoint = URL::temporarySignedRoute(
+        $endpointPath = URL::temporarySignedRoute(
             'api.browser-capture',
             now()->addMinutes(30),
             ['offer' => $this->getKey()],
+            false,
         );
+        $endpoint = rtrim((string) config('deal_hunter.companion_url'), '/').$endpointPath;
         $token = rtrim(strtr(base64_encode($endpoint), '+/', '-_'), '=');
         $retailerUrl = preg_replace('/#.*$/', '', $this->url) ?: $this->url;
 

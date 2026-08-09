@@ -193,10 +193,11 @@ class BrowserPriceCaptureTest extends TestCase
 
     private function signedUrl(DealOffer $offer): string
     {
-        return URL::temporarySignedRoute(
+        return 'http://localhost'.URL::temporarySignedRoute(
             'api.browser-capture',
             now()->addMinutes(5),
             ['offer' => $offer->getKey()],
+            false,
         );
     }
 }

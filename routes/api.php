@@ -16,7 +16,7 @@ Route::post('/meta-extraction', MetaExtractionController::class)
     ->name('api.meta-extraction');
 
 Route::post('/browser-capture/{offer}', BrowserPriceCaptureController::class)
-    ->middleware(['signed', 'throttle:30,1'])
+    ->middleware(['signed:relative', 'throttle:30,1'])
     ->name('api.browser-capture');
 
 Route::post('/browser-discoveries', BrowserDiscoveryController::class)

@@ -41,5 +41,5 @@ radarNotifications.addEventListener("change", () => {
 });
 
 document.getElementById("openPriceBuddy").addEventListener("click", () => {
-  chrome.tabs.create({ url: "http://localhost:8080/admin/deal-offers" });
+  chrome.tabs.create({ url: "http://127.0.0.1:8080/admin/deal-offers" });
 });

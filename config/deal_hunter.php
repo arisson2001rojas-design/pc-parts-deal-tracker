@@ -10,6 +10,7 @@ return [
     'auto_verify_per_store' => (int) env('DEAL_HUNTER_AUTO_VERIFY_PER_STORE', 3),
     'image_lookup_limit' => (int) env('DEAL_HUNTER_IMAGE_LOOKUPS', 6),
     'companion_user_id' => env('BROWSER_COMPANION_USER_ID'),
+    'companion_url' => env('BROWSER_COMPANION_URL', 'http://127.0.0.1:8080'),
 
     /*
      * Discovery uses a search index and trusted feeds. A separate low-frequency
