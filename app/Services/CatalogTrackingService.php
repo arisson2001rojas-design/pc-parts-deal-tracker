@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\EnrichProductImageJob;
 use App\Jobs\UpdateProductPricesJob;
 use App\Models\PcPart;
 use App\Models\Product;
@@ -49,6 +50,10 @@ class CatalogTrackingService
                 ['store_id' => $store->getKey(), 'price_factor' => 1]
             );
             $createdUrl = $createdUrl || $trackedUrl->wasRecentlyCreated;
+        }
+
+        if (blank($product->image) && ($product->wasRecentlyCreated || $createdUrl)) {
+            EnrichProductImageJob::dispatch($product->getKey())->afterCommit();
         }
 
         if ($queueRefresh && ($product->wasRecentlyCreated || $createdUrl) && $product->urls()->exists()) {

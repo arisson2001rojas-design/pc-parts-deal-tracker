@@ -6,6 +6,7 @@ return [
     'best_buy_api_key' => env('BEST_BUY_API_KEY'),
     'refresh_hours' => (int) env('DEAL_HUNTER_REFRESH_HOURS', 6),
     'max_results_per_store' => (int) env('DEAL_HUNTER_MAX_RESULTS', 10),
+    'image_lookup_limit' => (int) env('DEAL_HUNTER_IMAGE_LOOKUPS', 3),
 
     /*
      * Discovery uses a search index, not automated checkout or direct store

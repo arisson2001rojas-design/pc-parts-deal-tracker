@@ -3,23 +3,20 @@
 namespace App\Filament\Resources;
 
 use App\Enums\ComponentType;
+use App\Filament\Resources\PcPartResource\Columns\PcPartCardColumn;
 use App\Filament\Resources\PcPartResource\Pages;
 use App\Jobs\UpdateProductPricesJob;
 use App\Models\PcPart;
 use App\Models\Product;
 use App\Providers\Filament\AdminPanelProvider;
 use App\Services\CatalogTrackingService;
-use App\Services\Helpers\CurrencyHelper;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
-use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
-use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Carbon;
 
 class PcPartResource extends Resource
 {
@@ -43,61 +40,14 @@ class PcPartResource extends Resource
             ->heading('Cheapest monitored PC parts today')
             ->description('The catalog comes from BuildCores OpenDB (ODC-By 1.0). Prices are successful checks from Amazon, Walmart, and Newegg; they exclude tax, shipping, and import costs.')
             ->columns([
-                TextColumn::make('component_type')
-                    ->label('Type')
-                    ->badge()
-                    ->formatStateUsing(fn (ComponentType $state): string => $state->getLabel())
-                    ->color(fn (ComponentType $state): string => $state->getColor())
-                    ->sortable(),
-
-                TextColumn::make('name')
+                PcPartCardColumn::make('name')
                     ->label('Component')
-                    ->searchable()
-                    ->sortable()
-                    ->wrap()
-                    ->weight(FontWeight::Bold),
-
-                TextColumn::make('manufacturer')
-                    ->searchable()
-                    ->sortable()
-                    ->toggleable(),
-
-                TextColumn::make('release_year')
-                    ->label('Year')
-                    ->placeholder('Unknown')
-                    ->sortable()
-                    ->toggleable(),
-
-                TextColumn::make('retailer_urls')
-                    ->label('Available IDs')
-                    ->state(fn (PcPart $record): array => array_map('ucfirst', array_keys($record->retailer_urls ?? [])))
-                    ->badge()
-                    ->placeholder('None'),
-
-                TextColumn::make('current_price')
-                    ->label('Best price')
-                    ->formatStateUsing(fn ($state): string => (float) $state > 0
-                        ? CurrencyHelper::toString((float) $state)
-                        : 'Waiting for price')
-                    ->color(fn ($state): string => (float) $state > 0 ? 'success' : 'gray')
-                    ->weight(FontWeight::Bold)
+                    ->searchable(['name', 'manufacturer', 'series', 'variant'])
                     ->sortable(),
-
-                TextColumn::make('best_store')
-                    ->label('Store')
-                    ->state(fn (PcPart $record): ?string => data_get($record->currentUserProduct?->price_cache, '0.store_name'))
-                    ->placeholder('Not checked'),
-
-                TextColumn::make('last_checked_at')
-                    ->label('Checked')
-                    ->state(function (PcPart $record): ?Carbon {
-                        $timestamp = data_get($record->currentUserProduct?->price_cache, '0.last_scrape');
-
-                        return $timestamp ? Carbon::parse($timestamp) : null;
-                    })
-                    ->since()
-                    ->dateTimeTooltip()
-                    ->placeholder('Pending'),
+            ])
+            ->contentGrid([
+                'md' => 2,
+                'xl' => 3,
             ])
             ->filters([
                 SelectFilter::make('component_type')

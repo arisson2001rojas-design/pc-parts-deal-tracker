@@ -42,11 +42,15 @@
             <div x-show="tab === 'overview'">
                 <div class="flex gap-3 md:gap-8 flex-col md:flex-row">
                     <div class="md:w-1/3 flex flex-col">
-                        <div class="bg-white rounded-lg p-4 mb-4 h-auto w-full flex justify-center shadow-sm ring-1 ring-gray-950/5 dark:ring-white/10">
-                            <div class="">
-                                <x-product-image :product="$record" class="rounded-lg h-auto w-full block max-h-72 md:max-h-96" />
-                            </div>
+                        <div class="mb-4 flex w-full justify-center rounded-2xl bg-gray-950 p-3 shadow-sm ring-1 ring-white/10">
+                            <x-product-image :product="$record" class="aspect-square w-full max-w-md" />
                         </div>
+
+                        @if (blank($record->image) && $record->pc_part_id)
+                            <p class="mb-4 text-center text-xs text-gray-500 dark:text-gray-400">
+                                A product image lookup is running in the background.
+                            </p>
+                        @endif
 
                         @if ($record->price_aggregates->isNotEmpty())
                             <div class="product-price-summary bg-white dark:bg-gray-900 rounded-lg mb-4 shadow-sm ring-1 ring-gray-950/5 dark:ring-white/10 overflow-hidden">

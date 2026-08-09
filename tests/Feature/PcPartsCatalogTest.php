@@ -4,15 +4,22 @@ namespace Tests\Feature;
 
 use App\Console\Commands\SyncPcPartsCatalog;
 use App\Enums\ComponentType;
+use App\Filament\Resources\PcBuildResource;
+use App\Filament\Resources\PcPartResource;
+use App\Jobs\EnrichProductImageJob;
 use App\Jobs\UpdateProductPricesJob;
 use App\Models\PcBuild;
 use App\Models\PcBuildItem;
 use App\Models\PcPart;
+use App\Models\Product;
 use App\Models\Store;
 use App\Models\User;
 use App\Services\BuildCoresCatalogImporter;
 use App\Services\CatalogTrackingService;
+use App\Services\ProductImageSearchService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -74,7 +81,37 @@ class PcPartsCatalogTest extends TestCase
         $this->assertSame(ComponentType::Gpu, $product->component_type);
         $this->assertSame(3, $product->urls()->count());
         $this->assertDatabaseCount('products', 1);
+        Queue::assertPushed(EnrichProductImageJob::class, 1);
         Queue::assertPushed(UpdateProductPricesJob::class, 1);
+    }
+
+    public function test_it_finds_and_saves_a_relevant_catalog_product_image(): void
+    {
+        Cache::flush();
+        config()->set('deal_hunter.search_url', 'http://searxng.test/search');
+        Http::fake([
+            'searxng.test/*' => Http::response(['results' => [[
+                'title' => 'Timetec PINNACLE SD-1 INDEX Pro 2TB SSD',
+                'content' => 'PCIe Gen4 NVMe product image',
+                'url' => 'https://timetecinc.com/products/pinnacle-sd-1-index',
+                'img_src' => 'https://cdn.example.test/timetec-pinnacle.png',
+            ]]]),
+        ]);
+        $part = PcPart::factory()->create([
+            'manufacturer' => 'Timetec',
+            'name' => 'PINNACLE SD1-INDEX 2TB SSD NVMe',
+            'component_type' => ComponentType::Ssd,
+        ]);
+        $product = Product::factory()->create([
+            'pc_part_id' => $part->getKey(),
+            'component_type' => ComponentType::Ssd,
+            'image' => null,
+        ]);
+
+        (new EnrichProductImageJob($product->getKey()))
+            ->handle(resolve(ProductImageSearchService::class));
+
+        $this->assertSame('https://cdn.example.test/timetec-pinnacle.png', $product->fresh()->image);
     }
 
     public function test_selecting_a_catalog_part_in_a_build_starts_tracking(): void
@@ -104,6 +141,26 @@ class PcPartsCatalogTest extends TestCase
         ]);
         $this->assertSame(1, $build->fresh()->missing_price_count);
         Queue::assertPushed(UpdateProductPricesJob::class, 1);
+    }
+
+    public function test_catalog_cards_and_pc_build_picker_render_with_real_parts(): void
+    {
+        $this->withoutVite();
+        config()->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
+        $user = User::factory()->create();
+        $part = PcPart::factory()->create([
+            'component_type' => ComponentType::Gpu,
+            'name' => 'Radeon RX 6600 8GB',
+            'manufacturer' => 'AMD',
+        ]);
+        $this->actingAs($user);
+
+        $this->get(PcPartResource::getUrl('index').'?activeTab=all')
+            ->assertOk()
+            ->assertSee($part->name);
+        $this->get(PcBuildResource::getUrl('create'))
+            ->assertOk()
+            ->assertSee($part->name);
     }
 
     private function createUsStores(): void

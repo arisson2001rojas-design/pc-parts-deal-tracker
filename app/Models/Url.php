@@ -296,6 +296,12 @@ class Url extends Model
 
         // Update out-of-stock status based on scrape result.
         if ($scrapeResult) {
+            $scrapedImage = data_get($scrapeResult, 'image');
+            $image = is_string($scrapedImage) ? ScrapeUrl::preSaveMaxLength($scrapedImage) : null;
+            if ($image && blank($this->product?->image)) {
+                $this->product?->forceFill(['image' => $image])->save();
+            }
+
             $scrapedValue = data_get($scrapeResult, 'availability');
             $availabilityStrategy = data_get($this->store, 'scrape_strategy.availability');
             $stockStatus = StockStatus::resolveAvailability($scrapedValue, $availabilityStrategy);

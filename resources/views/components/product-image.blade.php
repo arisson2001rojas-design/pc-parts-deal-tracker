@@ -1,7 +1,6 @@
-<span>
-    <img
-        src="{{ $product->primary_image }}" alt="{{ $product->title }}"
-        onerror="this.onerror=null;this.src='/images/placeholder.png';"
-        {{ $attributes->merge(['class' => 'rounded-md display-block h-auto block w-20']) }}
-    />
-</span>
+<x-pc-part-visual
+    :src="$product->image"
+    :alt="$product->title"
+    :type="$product->component_type"
+    {{ $attributes }}
+/>

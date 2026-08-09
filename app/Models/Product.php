@@ -390,7 +390,7 @@ class Product extends Model
     public function getPrimaryImageAttribute(): string
     {
         return empty($this->image)
-            ? asset('/images/placeholder.png')
+            ? asset('/images/pc-part-placeholder.svg')
             : $this->image;
     }
 

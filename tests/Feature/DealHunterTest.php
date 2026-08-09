@@ -27,6 +27,7 @@ class DealHunterTest extends TestCase
 
         config()->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
         config()->set('deal_hunter.dealnews_feed_url');
+        config()->set('deal_hunter.image_lookup_limit', 0);
         Cache::forget('deal-hunter:dealnews-components-feed');
     }
 
@@ -252,7 +253,7 @@ class DealHunterTest extends TestCase
                 <title>AMD Ryzen 7 7800X3D Desktop Processor for $339</title>
                 <link>https://www.dealnews.com/AMD-Ryzen-7-7800-X3-D-for-339/123.html</link>
                 <pubDate>{$publishedAt}</pubDate>
-                <description><![CDATA[Buy Now at Newegg. Desktop CPU deal.]]></description>
+                <description><![CDATA[<img src="https://images.example.test/ryzen.webp"> Buy Now at Newegg. Desktop CPU deal.]]></description>
             </item><item>
                 <title>Open-Box GAMEMAX Micro-ATX Computer Case for $49</title>
                 <link>https://www.dealnews.com/GAMEMAX-Case-for-49/124.html</link>
@@ -278,6 +279,7 @@ class DealHunterTest extends TestCase
             'store' => 'Newegg',
             'price' => 339,
             'source' => 'dealnews_rss',
+            'image_url' => 'https://images.example.test/ryzen.webp',
         ]);
         Http::assertSentCount(2);
     }
@@ -285,7 +287,26 @@ class DealHunterTest extends TestCase
     public function test_deal_hunter_pages_render_for_an_authenticated_user(): void
     {
         $this->withoutVite();
-        $this->actingAs(User::factory()->create());
+        $user = User::factory()->create();
+        $search = DealSearch::query()->create([
+            'user_id' => $user->getKey(),
+            'name' => 'GPU deal',
+            'query' => 'Radeon RX 6600',
+            'component_type' => ComponentType::Gpu,
+            'enabled' => true,
+            'last_searched_at' => now(),
+        ]);
+        DealOffer::query()->create([
+            'deal_search_id' => $search->getKey(),
+            'store' => 'Newegg',
+            'title' => 'Radeon RX 6600 for $179.99',
+            'url' => 'https://www.newegg.com/p/N82E16800000010',
+            'url_hash' => hash('sha256', 'https://www.newegg.com/p/N82E16800000010'),
+            'price' => 179.99,
+            'source' => 'web_index',
+            'fetched_at' => now(),
+        ]);
+        $this->actingAs($user);
 
         $this->get(DealOfferResource::getUrl('index'))->assertOk();
         $this->get(DealSearchResource::getUrl('index'))->assertOk();

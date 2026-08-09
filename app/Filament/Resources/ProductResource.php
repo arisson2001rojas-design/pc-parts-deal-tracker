@@ -308,7 +308,7 @@ class ProductResource extends Resource
                             ->height(60)
                             ->extraImgAttributes([
                                 'class' => 'rounded-md p-1 bg-white mr-2',
-                                'onerror' => "this.onerror=null;this.src='/images/placeholder.png';",
+                                'onerror' => "this.onerror=null;this.src='/images/pc-part-placeholder.svg';",
                             ])
                             ->label('Image')
                             ->url(fn ($record): string => $record->action_urls['view'])

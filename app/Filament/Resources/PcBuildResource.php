@@ -19,6 +19,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 
 class PcBuildResource extends Resource
 {
@@ -58,13 +59,20 @@ class PcBuildResource extends Resource
                     ->relationship()
                     ->schema([
                         Select::make('pc_part_id')
-                            ->label('Component catalog')
+                            ->label('Choose a component')
                             ->options(fn (): array => self::catalogOptions())
                             ->getSearchResultsUsing(fn (string $search): array => self::catalogOptions($search))
                             ->getOptionLabelUsing(fn ($value): ?string => PcPart::query()->find($value)?->display_name)
                             ->searchable()
+                            ->searchPrompt('Search by brand, model, series, or capacity...')
+                            ->loadingMessage('Searching the component catalog...')
+                            ->noSearchResultsMessage('No matching component found. Try a shorter model name.')
+                            ->searchDebounce(350)
+                            ->optionsLimit(50)
+                            ->native(false)
                             ->required()
-                            ->distinct(),
+                            ->distinct()
+                            ->columnSpan(9),
 
                         TextInput::make('quantity')
                             ->numeric()
@@ -72,13 +80,17 @@ class PcBuildResource extends Resource
                             ->minValue(1)
                             ->maxValue(10)
                             ->default(1)
-                            ->required(),
+                            ->required()
+                            ->columnSpan(3),
                     ])
-                    ->columns(4)
+                    ->columns(12)
                     ->columnSpanFull()
                     ->defaultItems(1)
                     ->minItems(1)
-                    ->addActionLabel('Add component')
+                    ->itemLabel(fn (array $state): ?string => filled($state['pc_part_id'] ?? null)
+                        ? PcPart::query()->find($state['pc_part_id'])?->display_name
+                        : 'New component')
+                    ->addActionLabel('Add another component')
                     ->reorderable(false),
             ])
                 ->description('Search the open CPU, GPU, RAM, SSD, and PSU catalog. Selecting a part starts daily price tracking automatically.'),
@@ -186,15 +198,18 @@ class PcBuildResource extends Resource
             ->orderBy('name')
             ->limit(50)
             ->get()
-            ->mapWithKeys(function (PcPart $product): array {
-                $type = $product->component_type->getLabel();
-                $year = $product->release_year ? " ({$product->release_year})" : '';
-                $stores = collect(array_keys($product->retailer_urls ?? []))
-                    ->map(fn (string $store): string => ucfirst($store))
-                    ->join(', ');
-                $price = $year.($stores !== '' ? " stores: {$stores}" : ' no retailer identifier');
+            ->groupBy(fn (PcPart $product): string => $product->component_type->getLabel())
+            ->map(function (Collection $products): array {
+                return $products->mapWithKeys(function (PcPart $product): array {
+                    $maker = $product->manufacturer ? $product->manufacturer.' · ' : '';
+                    $year = $product->release_year ? ' · '.$product->release_year : '';
+                    $stores = collect(array_keys($product->retailer_urls ?? []))
+                        ->map(fn (string $store): string => ucfirst($store))
+                        ->join(', ');
+                    $availability = $stores !== '' ? ' · '.$stores : ' · no store identifier';
 
-                return [$product->getKey() => "[$type] {$product->title} — $price"];
+                    return [$product->getKey() => $maker.$product->title.$year.$availability];
+                })->all();
             })
             ->all();
     }

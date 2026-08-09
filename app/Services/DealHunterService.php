@@ -17,6 +17,8 @@ use Throwable;
 
 class DealHunterService
 {
+    public function __construct(private readonly ProductImageSearchService $images) {}
+
     public function refresh(DealSearch $search): int
     {
         $this->pruneInvalidOffers($search);
@@ -33,14 +35,20 @@ class DealHunterService
             }
         }
 
+        $offers = collect($this->enrichImages($offers->all()));
+
         $now = now();
 
         foreach ($offers as $offer) {
             $hash = hash('sha256', $offer['url']);
+            $values = $offer + ['fetched_at' => $now];
+            if (blank($values['image_url'] ?? null)) {
+                unset($values['image_url']);
+            }
 
             DealOffer::query()->updateOrCreate(
                 ['deal_search_id' => $search->getKey(), 'url_hash' => $hash],
-                $offer + ['fetched_at' => $now]
+                $values
             );
         }
 
@@ -51,7 +59,7 @@ class DealHunterService
     }
 
     /**
-     * @return array<int, array{store: string, title: string, url: string, price: ?float, currency: string, source: string}>
+     * @return array<int, array{store: string, title: string, url: string, image_url: ?string, price: ?float, currency: string, source: string}>
      */
     private function searchWebIndex(DealSearch $search): array
     {
@@ -116,7 +124,7 @@ class DealHunterService
     }
 
     /**
-     * @return array<int, array{store: string, title: string, url: string, price: ?float, currency: string, source: string, fetched_at: Carbon}>
+     * @return array<int, array{store: string, title: string, url: string, image_url: ?string, price: ?float, currency: string, source: string, fetched_at: Carbon}>
      */
     private function searchDealNews(DealSearch $search): array
     {
@@ -154,8 +162,9 @@ class DealHunterService
         $offers = [];
         foreach ($feed->channel->item as $item) {
             $title = trim((string) $item->title);
+            $rawDescription = (string) $item->description;
             $description = html_entity_decode(
-                strip_tags((string) $item->description),
+                strip_tags($rawDescription),
                 ENT_QUOTES | ENT_HTML5,
                 'UTF-8'
             );
@@ -181,6 +190,7 @@ class DealHunterService
                 'store' => $store,
                 'title' => Str::limit($title, 1024, ''),
                 'url' => $url,
+                'image_url' => $this->extractImageUrl($rawDescription),
                 'price' => $this->extractPrice([], $title),
                 'currency' => 'USD',
                 'source' => 'dealnews_rss',
@@ -197,7 +207,7 @@ class DealHunterService
     /**
      * @param  array<string, mixed>  $result
      * @param  array<string, mixed>  $retailer
-     * @return null|array{store: string, title: string, url: string, price: ?float, currency: string, source: string}
+     * @return null|array{store: string, title: string, url: string, image_url: ?string, price: ?float, currency: string, source: string}
      */
     private function mapWebResult(array $result, array $retailer, DealSearch $search): ?array
     {
@@ -222,6 +232,7 @@ class DealHunterService
             'store' => (string) ($retailer['name'] ?? $host),
             'title' => Str::limit(strip_tags($title), 1024, ''),
             'url' => $url,
+            'image_url' => $this->resultImageUrl($result),
             'price' => $this->extractPrice($result, $title.' '.$snippet),
             'currency' => 'USD',
             'source' => 'web_index',
@@ -342,7 +353,7 @@ class DealHunterService
     /**
      * @return array{
      *     succeeded: bool,
-     *     offers: array<int, array{store: string, title: string, url: string, price: ?float, currency: string, source: string}>
+     *     offers: array<int, array{store: string, title: string, url: string, image_url: ?string, price: ?float, currency: string, source: string}>
      * }
      */
     private function searchBestBuy(DealSearch $search): array
@@ -377,6 +388,7 @@ class DealHunterService
                     'store' => 'Best Buy',
                     'title' => Str::limit((string) ($product['name'] ?? 'Best Buy product'), 1024, ''),
                     'url' => (string) ($product['url'] ?? ''),
+                    'image_url' => $this->validImageUrl($product['image'] ?? null),
                     'price' => isset($product['salePrice']) ? (float) $product['salePrice'] : null,
                     'currency' => 'USD',
                     'source' => 'best_buy_api',
@@ -385,6 +397,57 @@ class DealHunterService
                 ->values()
                 ->all(),
         ];
+    }
+
+    /**
+     * @param  array<int, array{store: string, title: string, url: string, image_url: ?string, price: ?float, currency: string, source: string, fetched_at?: Carbon}>  $offers
+     * @return array<int, array{store: string, title: string, url: string, image_url: ?string, price: ?float, currency: string, source: string, fetched_at?: Carbon}>
+     */
+    private function enrichImages(array $offers): array
+    {
+        $remaining = max(0, (int) config('deal_hunter.image_lookup_limit', 3));
+
+        return array_map(function (array $offer) use (&$remaining): array {
+            if ($remaining === 0 || filled($offer['image_url'] ?? null)) {
+                return $offer;
+            }
+
+            $remaining--;
+            $image = $this->images->find($offer['title']);
+            if ($image !== null) {
+                $offer['image_url'] = $image;
+            }
+
+            return $offer;
+        }, $offers);
+    }
+
+    /** @param array<string, mixed> $result */
+    private function resultImageUrl(array $result): ?string
+    {
+        return $this->validImageUrl(data_get($result, 'img_src'))
+            ?? $this->validImageUrl(data_get($result, 'thumbnail'));
+    }
+
+    private function extractImageUrl(string $html): ?string
+    {
+        if (! preg_match('/<img[^>]+src=["\'](?<url>https?:\/\/[^"\']+)["\']/i', $html, $matches)) {
+            return null;
+        }
+
+        return $this->validImageUrl(html_entity_decode($matches['url'], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    }
+
+    private function validImageUrl(mixed $url): ?string
+    {
+        if (! is_string($url)
+            || strlen($url) >= ScrapeUrl::MAX_STR_LENGTH
+            || ! filter_var($url, FILTER_VALIDATE_URL)
+            || ! in_array(parse_url($url, PHP_URL_SCHEME), ['http', 'https'], true)) {
+            return null;
+        }
+
+        return $url;
     }
 
     /**
