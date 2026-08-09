@@ -79,7 +79,7 @@ class DealOffer extends Model
             && (float) $latest->price === (float) $this->price
             && $latest->currency === $this->currency
             && $latest->source === $this->source
-            && abs($latest->captured_at->diffInSeconds($capturedAt, false)) < 300) {
+            && abs(Carbon::parse($latest->captured_at)->diffInSeconds($capturedAt, false)) < 300) {
             return $latest;
         }
 

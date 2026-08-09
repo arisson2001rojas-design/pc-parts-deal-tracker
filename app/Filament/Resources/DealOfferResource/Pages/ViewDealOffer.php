@@ -18,7 +18,7 @@ class ViewDealOffer extends ViewRecord
 
     public function getTitle(): string|Htmlable
     {
-        return 'Historial · '.Str::limit($this->record->dealSearch?->name ?? $this->record->title, 64);
+        return 'Historial · '.Str::limit($this->record->dealSearch->name ?? $this->record->title, 64);
     }
 
     protected function getHeaderActions(): array

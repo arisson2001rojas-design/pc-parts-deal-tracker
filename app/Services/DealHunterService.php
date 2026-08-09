@@ -61,14 +61,13 @@ class DealHunterService
                     $values['price'],
                     $values['currency'],
                     $values['source'],
-                    $values['availability'],
                     $values['fetched_at'],
                 );
             }
             $dealOffer->fill($values)->save();
             if ($dealOffer->hasVerifiedPrice()
                 && isset($values['price'])
-                && in_array($values['source'] ?? null, DealOffer::VERIFIED_PRICE_SOURCES, true)) {
+                && in_array($values['source'], DealOffer::VERIFIED_PRICE_SOURCES, true)) {
                 $dealOffer->recordPriceSnapshot();
             }
 
@@ -275,7 +274,6 @@ class DealHunterService
             'price' => null,
             'currency' => 'USD',
             'source' => 'web_index',
-            'availability' => DealOffer::AVAILABILITY_UNKNOWN,
         ];
     }
 
