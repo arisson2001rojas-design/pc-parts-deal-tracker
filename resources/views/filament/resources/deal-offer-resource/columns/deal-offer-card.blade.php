@@ -121,58 +121,60 @@
                 </div>
             </div>
 
-            <div class="mt-4 flex justify-end">
-                <x-filament::button
-                    type="button"
-                    color="gray"
-                    size="sm"
-                    icon="heroicon-m-check-badge"
-                    x-on:click="showPriceConfirmation = ! showPriceConfirmation"
-                >
-                    Confirmar manualmente
-                </x-filament::button>
-            </div>
-
-            <div
-                x-cloak
-                x-show="showPriceConfirmation"
-                x-transition
-                class="mt-3 rounded-xl bg-gray-50 p-3 ring-1 ring-gray-950/5 dark:bg-white/5 dark:ring-white/10"
-            >
-                <label class="text-xs font-medium text-gray-700 dark:text-gray-200">
-                    Precio actual del artículo en USD
-                </label>
-                <div class="mt-2 flex gap-2">
-                    <div class="flex min-w-0 flex-1 items-center rounded-lg bg-white ring-1 ring-gray-950/10 dark:bg-gray-950 dark:ring-white/10">
-                        <span class="ps-3 text-sm text-gray-500">$</span>
-                        <input
-                            type="number"
-                            min="0.01"
-                            max="10000"
-                            step="0.01"
-                            inputmode="decimal"
-                            placeholder="329.00"
-                            x-model="confirmedPrice"
-                            class="min-w-0 flex-1 border-0 bg-transparent px-2 py-2 text-sm text-gray-950 outline-none focus:ring-0 dark:text-white"
-                            x-on:keydown.enter.prevent="$refs.saveConfirmedPrice.click()"
-                        >
-                    </div>
+            @if (! $hasVerifiedPrice)
+                <div class="mt-4 flex justify-end">
                     <x-filament::button
                         type="button"
+                        color="gray"
                         size="sm"
-                        x-ref="saveConfirmedPrice"
-                        x-bind:disabled="! confirmedPrice"
-                        wire:loading.attr="disabled"
-                        wire:target="confirmOfferPrice"
-                        x-on:click="$wire.confirmOfferPrice({{ $offer->getKey() }}, confirmedPrice).then(() => { showPriceConfirmation = false; confirmedPrice = '' })"
+                        icon="heroicon-m-check-badge"
+                        x-on:click="showPriceConfirmation = ! showPriceConfirmation"
                     >
-                        Guardar
+                        Confirmar manualmente
                     </x-filament::button>
                 </div>
-                <p class="mt-2 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
-                    Copia el precio visible del producto. No uses cuotas, trade-in, cupones ni precios de accesorios.
-                </p>
-            </div>
+
+                <div
+                    x-cloak
+                    x-show="showPriceConfirmation"
+                    x-transition
+                    class="mt-3 rounded-xl bg-gray-50 p-3 ring-1 ring-gray-950/5 dark:bg-white/5 dark:ring-white/10"
+                >
+                    <label class="text-xs font-medium text-gray-700 dark:text-gray-200">
+                        Precio actual del artículo en USD
+                    </label>
+                    <div class="mt-2 flex gap-2">
+                        <div class="flex min-w-0 flex-1 items-center rounded-lg bg-white ring-1 ring-gray-950/10 dark:bg-gray-950 dark:ring-white/10">
+                            <span class="ps-3 text-sm text-gray-500">$</span>
+                            <input
+                                type="number"
+                                min="0.01"
+                                max="10000"
+                                step="0.01"
+                                inputmode="decimal"
+                                placeholder="329.00"
+                                x-model="confirmedPrice"
+                                class="min-w-0 flex-1 border-0 bg-transparent px-2 py-2 text-sm text-gray-950 outline-none focus:ring-0 dark:text-white"
+                                x-on:keydown.enter.prevent="$refs.saveConfirmedPrice.click()"
+                            >
+                        </div>
+                        <x-filament::button
+                            type="button"
+                            size="sm"
+                            x-ref="saveConfirmedPrice"
+                            x-bind:disabled="! confirmedPrice"
+                            wire:loading.attr="disabled"
+                            wire:target="confirmOfferPrice"
+                            x-on:click="$wire.confirmOfferPrice({{ $offer->getKey() }}, confirmedPrice).then(() => { showPriceConfirmation = false; confirmedPrice = '' })"
+                        >
+                            Guardar
+                        </x-filament::button>
+                    </div>
+                    <p class="mt-2 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
+                        Copia el precio visible del producto. No uses cuotas, trade-in, cupones ni precios de accesorios.
+                    </p>
+                </div>
+            @endif
 
             <div class="mt-4 grid grid-cols-2 gap-2">
                 @if ($hasVerifiedPrice || $offer->amazonAsin())
@@ -199,7 +201,7 @@
                     icon="heroicon-m-arrow-top-right-on-square"
                     class="justify-center"
                 >
-                    {{ $canVerifyInBrowser ? ($offer->isOutOfStock() ? 'Revisar stock' : 'Verificar precio') : 'Abrir tienda' }}
+                    {{ $canVerifyInBrowser ? ($offer->isOutOfStock() ? 'Revisar stock' : ($hasVerifiedPrice ? 'Revisar precio' : 'Verificar precio')) : 'Abrir tienda' }}
                 </x-filament::button>
             </div>
             <p class="mt-3 text-[11px] leading-4 text-gray-400">Confirma stock, vendedor, impuestos y garantía antes de comprar.</p>

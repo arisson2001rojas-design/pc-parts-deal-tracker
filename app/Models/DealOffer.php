@@ -91,7 +91,7 @@ class DealOffer extends Model
 
     private static function userConfirmationHours(): int
     {
-        return max(1, (int) config('deal_hunter.user_confirmed_price_hours', 24));
+        return max(1, (int) config('deal_hunter.user_confirmed_price_hours', 8));
     }
 
     public function recordPriceSnapshot(): ?DealOfferPrice

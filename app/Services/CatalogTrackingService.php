@@ -17,6 +17,7 @@ class CatalogTrackingService
      */
     public function track(PcPart $part, int $userId, ?array $retailers = null, bool $queueRefresh = true): Product
     {
+        $trackingInterval = max(3600, (int) config('price_buddy.pc_parts_tracking_interval_seconds', 28800));
         $product = Product::query()->firstOrCreate(
             [
                 'user_id' => $userId,
@@ -27,10 +28,23 @@ class CatalogTrackingService
                 'component_type' => $part->component_type->value,
                 'price_cache' => [],
                 'favourite' => true,
-                'refresh_interval' => 86400,
+                'refresh_interval' => $trackingInterval,
                 'paused' => false,
             ]
         );
+
+        $reactivated = ! $product->wasRecentlyCreated
+            && ($product->paused || ! $product->favourite);
+
+        if (! $product->favourite
+            || $product->paused
+            || $product->refresh_interval !== $trackingInterval) {
+            $product->forceFill([
+                'favourite' => true,
+                'paused' => false,
+                'refresh_interval' => $trackingInterval,
+            ])->save();
+        }
 
         $product->loadMissing('urls');
         $createdUrl = false;
@@ -52,11 +66,13 @@ class CatalogTrackingService
             $createdUrl = $createdUrl || $trackedUrl->wasRecentlyCreated;
         }
 
-        if (blank($product->image) && ($product->wasRecentlyCreated || $createdUrl)) {
+        $needsBootstrap = $product->wasRecentlyCreated || $reactivated || $createdUrl;
+
+        if (blank($product->image) && $needsBootstrap) {
             EnrichProductImageJob::dispatch($product->getKey())->afterCommit();
         }
 
-        if ($queueRefresh && ($product->wasRecentlyCreated || $createdUrl) && $product->urls()->exists()) {
+        if ($queueRefresh && $needsBootstrap && $product->urls()->exists()) {
             $product->scheduleNextCheck();
             UpdateProductPricesJob::dispatch($product, true)->afterCommit();
         }

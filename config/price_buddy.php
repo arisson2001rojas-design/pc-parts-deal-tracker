@@ -44,6 +44,9 @@ return [
         'https://codeload.github.com/buildcores/buildcores-open-db/zip/refs/heads/main'
     ),
 
+    'pc_parts_tracking_interval_seconds' => (int) env('PC_PARTS_TRACKING_INTERVAL_SECONDS', 28800),
+    'pc_parts_bulk_track_limit' => (int) env('PC_PARTS_BULK_TRACK_LIMIT', 25),
+
     'pc_parts_starter_searches' => [
         'cpu' => [
             'Ryzen 5 4500', 'Ryzen 5 5500', 'Ryzen 5 5600', 'Ryzen 5 7600',

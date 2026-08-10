@@ -54,7 +54,9 @@ class PcPart extends Model
      */
     public function currentUserProduct(): HasOne
     {
-        return $this->hasOne(Product::class)->where('user_id', auth()->id());
+        return $this->hasOne(Product::class)
+            ->where('user_id', auth()->id())
+            ->where('paused', false);
     }
 
     public function scopeSearchCatalog(Builder $query, string $search): Builder

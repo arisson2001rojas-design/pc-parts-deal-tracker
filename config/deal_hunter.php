@@ -5,11 +5,11 @@ return [
     'dealnews_feed_url' => env('DEAL_HUNTER_DEALNEWS_FEED_URL', 'https://www.dealnews.com/rss/c93/'),
     'best_buy_api_key' => env('BEST_BUY_API_KEY'),
     'price_extractor_url' => env('PRICE_EXTRACTOR_URL'),
-    'refresh_hours' => (int) env('DEAL_HUNTER_REFRESH_HOURS', 6),
+    'refresh_hours' => (int) env('DEAL_HUNTER_REFRESH_HOURS', 8),
     'max_results_per_store' => (int) env('DEAL_HUNTER_MAX_RESULTS', 10),
     'auto_verify_per_store' => (int) env('DEAL_HUNTER_AUTO_VERIFY_PER_STORE', 3),
     'image_lookup_limit' => (int) env('DEAL_HUNTER_IMAGE_LOOKUPS', 6),
-    'user_confirmed_price_hours' => (int) env('DEAL_HUNTER_USER_CONFIRMED_PRICE_HOURS', 24),
+    'user_confirmed_price_hours' => (int) env('DEAL_HUNTER_USER_CONFIRMED_PRICE_HOURS', 8),
     'companion_user_id' => env('BROWSER_COMPANION_USER_ID'),
     'companion_url' => env('BROWSER_COMPANION_URL', 'http://127.0.0.1:8080'),
 

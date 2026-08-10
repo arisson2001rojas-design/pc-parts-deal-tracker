@@ -25,7 +25,7 @@ class ListDealOffers extends ListRecords
     {
         parent::mount();
 
-        $cutoff = now()->subHours((int) config('deal_hunter.refresh_hours', 6));
+        $cutoff = now()->subHours((int) config('deal_hunter.refresh_hours', 8));
         DealSearch::query()
             ->currentUser()
             ->where('enabled', true)
@@ -101,7 +101,7 @@ class ListDealOffers extends ListRecords
         }
 
         $this->flushCachedTableRecords();
-        $confirmationHours = max(1, (int) config('deal_hunter.user_confirmed_price_hours', 24));
+        $confirmationHours = max(1, (int) config('deal_hunter.user_confirmed_price_hours', 8));
         Notification::make()
             ->title('Precio confirmado')
             ->body('$'.number_format($price, 2)." será confiable durante {$confirmationHours} horas.")

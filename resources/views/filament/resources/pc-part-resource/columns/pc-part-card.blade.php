@@ -63,10 +63,10 @@
                 </p>
             @elseif ($product)
                 <p class="font-semibold text-amber-600 dark:text-amber-400">Price check pending</p>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">The stores will be checked automatically.</p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">The stores will be checked automatically about every 8 hours.</p>
             @else
                 <p class="font-semibold text-gray-700 dark:text-gray-200">Ready to track</p>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Choose Track prices to start daily checks.</p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Choose Track prices to start 8-hour checks.</p>
             @endif
         </div>
     </div>

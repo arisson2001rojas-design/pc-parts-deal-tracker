@@ -33,12 +33,12 @@ class ManualDealPriceConfirmationTest extends TestCase
 
     public function test_a_manual_confirmation_expires_after_the_configured_window(): void
     {
-        config()->set('deal_hunter.user_confirmed_price_hours', 24);
+        config()->set('deal_hunter.user_confirmed_price_hours', 8);
         $offer = $this->offer();
         $offer->forceFill([
             'price' => 299.99,
             'source' => DealOffer::USER_CONFIRMED_SOURCE,
-            'fetched_at' => now()->subHours(25),
+            'fetched_at' => now()->subHours(9),
         ])->save();
 
         $offer->refresh();

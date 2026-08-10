@@ -16,7 +16,7 @@ class RefreshDealSearches extends Command
 
     public function handle(): int
     {
-        $cutoff = now()->subHours((int) config('deal_hunter.refresh_hours', 6));
+        $cutoff = now()->subHours((int) config('deal_hunter.refresh_hours', 8));
 
         $query = DealSearch::query()
             ->where('enabled', true)

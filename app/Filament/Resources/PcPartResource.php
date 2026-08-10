@@ -104,6 +104,16 @@ class PcPartResource extends Resource
                     ->label('Track selected prices')
                     ->icon('heroicon-o-bell')
                     ->action(function (Collection $records, CatalogTrackingService $tracking): void {
+                        $limit = max(1, (int) config('price_buddy.pc_parts_bulk_track_limit', 25));
+                        if ($records->count() > $limit) {
+                            Notification::make()
+                                ->title('Too many parts selected')
+                                ->body("Select at most {$limit} components at a time so retailer checks stay controlled.")
+                                ->danger()
+                                ->send();
+                            return;
+                        }
+
                         $records->each(function ($part) use ($tracking): void {
                             if ($part instanceof PcPart) {
                                 $tracking->track($part, auth()->id());
@@ -114,7 +124,7 @@ class PcPartResource extends Resource
                     ->deselectRecordsAfterCompletion(),
             ])
             ->emptyStateHeading('No monitored prices for today yet')
-            ->emptyStateDescription('Open the All catalog tab, choose components, and select Track prices. Checks continue automatically every day.')
+            ->emptyStateDescription('Open the All catalog tab, choose components, and select Track prices. Checks continue automatically about every 8 hours.')
             ->emptyStateIcon('heroicon-o-magnifying-glass');
     }
 
@@ -129,6 +139,7 @@ class PcPartResource extends Resource
                     ->select('current_price')
                     ->whereColumn('pc_part_id', 'pc_parts.id')
                     ->where('user_id', $userId)
+                    ->where('paused', false)
                     ->limit(1),
             ]);
     }

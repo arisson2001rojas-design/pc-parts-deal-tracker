@@ -14,13 +14,17 @@ services:
             APP_USER_NAME: ${APP_USER_NAME:-PC Deal Hunter}
             APP_USER_EMAIL: ${APP_USER_EMAIL}
             APP_USER_PASSWORD: ${APP_USER_PASSWORD}
+            DB_CONNECTION: mysql
             DB_HOST: database
             DB_USERNAME: pricebuddy
             DB_PASSWORD: ${DB_PASSWORD}
             DB_DATABASE: pricebuddy
             SCRAPER_BASE_URL: http://scraper:3000
             DEAL_HUNTER_SEARCH_URL: http://searxng:8080/search
-            DEAL_HUNTER_REFRESH_HOURS: ${DEAL_HUNTER_REFRESH_HOURS:-6}
+            DEAL_HUNTER_REFRESH_HOURS: ${DEAL_HUNTER_REFRESH_HOURS:-8}
+            DEAL_HUNTER_USER_CONFIRMED_PRICE_HOURS: ${DEAL_HUNTER_USER_CONFIRMED_PRICE_HOURS:-8}
+            PC_PARTS_TRACKING_INTERVAL_SECONDS: ${PC_PARTS_TRACKING_INTERVAL_SECONDS:-28800}
+            PC_PARTS_BULK_TRACK_LIMIT: ${PC_PARTS_BULK_TRACK_LIMIT:-25}
             PRICE_EXTRACTOR_URL: http://price-extractor:8000
             BEST_BUY_API_KEY: ${BEST_BUY_API_KEY:-}
             AFFILIATE_ENABLED: 'false'

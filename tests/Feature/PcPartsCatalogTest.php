@@ -79,9 +79,40 @@ class PcPartsCatalogTest extends TestCase
 
         $this->assertSame('Example GPU', $product->title);
         $this->assertSame(ComponentType::Gpu, $product->component_type);
+        $this->assertTrue($product->favourite);
+        $this->assertFalse($product->paused);
+        $this->assertSame(28800, $product->refresh_interval);
         $this->assertSame(3, $product->urls()->count());
         $this->assertDatabaseCount('products', 1);
         Queue::assertPushed(EnrichProductImageJob::class, 1);
+        Queue::assertPushed(UpdateProductPricesJob::class, 1);
+    }
+
+    public function test_tracking_reactivates_a_paused_catalog_product_without_duplicating_it(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $this->createUsStores();
+        $part = PcPart::factory()->create([
+            'component_type' => ComponentType::Cpu,
+            'retailer_urls' => ['amazon' => 'https://www.amazon.com/dp/B000TEST04'],
+        ]);
+        $product = Product::factory()->create([
+            'user_id' => $user->getKey(),
+            'pc_part_id' => $part->getKey(),
+            'component_type' => ComponentType::Cpu,
+            'favourite' => false,
+            'paused' => true,
+            'refresh_interval' => null,
+        ]);
+
+        $tracked = resolve(CatalogTrackingService::class)->track($part, $user->getKey());
+
+        $this->assertSame($product->getKey(), $tracked->getKey());
+        $this->assertDatabaseCount('products', 1);
+        $this->assertTrue($tracked->fresh()->favourite);
+        $this->assertFalse($tracked->fresh()->paused);
+        $this->assertSame(28800, $tracked->fresh()->refresh_interval);
         Queue::assertPushed(UpdateProductPricesJob::class, 1);
     }
 

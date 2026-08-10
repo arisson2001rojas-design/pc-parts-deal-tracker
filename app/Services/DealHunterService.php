@@ -78,7 +78,7 @@ class DealHunterService
             $fetchedAt = $dealOffer->getAttribute('fetched_at');
             $verifiedPriceIsStale = in_array($dealOffer->source, ['direct_extract', 'browser_capture', 'browser_discovery'], true)
                 && $fetchedAt !== null
-                && Carbon::parse($fetchedAt)->lte(now()->subHours((int) config('deal_hunter.refresh_hours', 6)));
+                && Carbon::parse($fetchedAt)->lte(now()->subHours((int) config('deal_hunter.refresh_hours', 8)));
             if ($autoVerifyLimit > 0
                 && filled(config('deal_hunter.price_extractor_url'))
                 && ScrapeUrl::allowsAutomatedAccess($dealOffer->url)

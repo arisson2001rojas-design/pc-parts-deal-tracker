@@ -57,7 +57,7 @@ class ScheduleHelper
         // Refresh saved deal hunts while the local app is running. Discovery
         // uses a search index and never attempts automated checkout.
         $schedule->command(RefreshDealSearches::COMMAND, ['--stale'])
-            ->everySixHours()
+            ->hourly()
             ->withoutOverlapping(30);
         // Prune old log messages
         $schedule->command('model:prune', ['--model' => [LogMessage::class]])->daily();
