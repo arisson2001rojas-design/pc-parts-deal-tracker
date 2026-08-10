@@ -11,6 +11,7 @@
         'direct_extract' => 'Página verificada automáticamente',
         'browser_capture' => 'Verificado en tu navegador',
         'browser_discovery' => 'Aprendido por el Radar local',
+        DealOffer::USER_CONFIRMED_SOURCE => 'Confirmado manualmente por ti',
         default => 'Descubrimiento pendiente de verificar',
     };
     $hasVerifiedPrice = $offer->hasVerifiedPrice();
@@ -80,7 +81,7 @@
             Cacería: {{ $search?->name }}
         </p>
 
-        <div class="mt-auto pt-5">
+        <div class="mt-auto pt-5" x-data="{ showPriceConfirmation: false, confirmedPrice: '' }">
             @if ($hasVerifiedPrice)
                 <div class="flex flex-wrap items-end justify-between gap-2">
                     <p class="text-3xl font-black tracking-tight {{ $offer->isOutOfStock() ? 'text-gray-500 line-through' : 'text-success-600 dark:text-success-400' }}">
@@ -118,6 +119,59 @@
                         <span class="max-w-32 truncate font-medium text-gray-700 dark:text-gray-200" title="{{ $offer->seller }}">{{ $offer->seller }}</span>
                     @endif
                 </div>
+            </div>
+
+            <div class="mt-4 flex justify-end">
+                <x-filament::button
+                    type="button"
+                    color="gray"
+                    size="sm"
+                    icon="heroicon-m-check-badge"
+                    x-on:click="showPriceConfirmation = ! showPriceConfirmation"
+                >
+                    Confirmar manualmente
+                </x-filament::button>
+            </div>
+
+            <div
+                x-cloak
+                x-show="showPriceConfirmation"
+                x-transition
+                class="mt-3 rounded-xl bg-gray-50 p-3 ring-1 ring-gray-950/5 dark:bg-white/5 dark:ring-white/10"
+            >
+                <label class="text-xs font-medium text-gray-700 dark:text-gray-200">
+                    Precio actual del artículo en USD
+                </label>
+                <div class="mt-2 flex gap-2">
+                    <div class="flex min-w-0 flex-1 items-center rounded-lg bg-white ring-1 ring-gray-950/10 dark:bg-gray-950 dark:ring-white/10">
+                        <span class="ps-3 text-sm text-gray-500">$</span>
+                        <input
+                            type="number"
+                            min="0.01"
+                            max="10000"
+                            step="0.01"
+                            inputmode="decimal"
+                            placeholder="329.00"
+                            x-model="confirmedPrice"
+                            class="min-w-0 flex-1 border-0 bg-transparent px-2 py-2 text-sm text-gray-950 outline-none focus:ring-0 dark:text-white"
+                            x-on:keydown.enter.prevent="$refs.saveConfirmedPrice.click()"
+                        >
+                    </div>
+                    <x-filament::button
+                        type="button"
+                        size="sm"
+                        x-ref="saveConfirmedPrice"
+                        x-bind:disabled="! confirmedPrice"
+                        wire:loading.attr="disabled"
+                        wire:target="confirmOfferPrice"
+                        x-on:click="$wire.confirmOfferPrice({{ $offer->getKey() }}, confirmedPrice).then(() => { showPriceConfirmation = false; confirmedPrice = '' })"
+                    >
+                        Guardar
+                    </x-filament::button>
+                </div>
+                <p class="mt-2 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
+                    Copia el precio visible del producto. No uses cuotas, trade-in, cupones ni precios de accesorios.
+                </p>
             </div>
 
             <div class="mt-4 grid grid-cols-2 gap-2">

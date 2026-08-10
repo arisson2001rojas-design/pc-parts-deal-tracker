@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\URL;
 
 class DealOffer extends Model
 {
+    public const string USER_CONFIRMED_SOURCE = 'user_confirmed';
+
     public const string AVAILABILITY_IN_STOCK = 'in_stock';
 
     public const string AVAILABILITY_OUT_OF_STOCK = 'out_of_stock';
@@ -23,6 +25,7 @@ class DealOffer extends Model
         'direct_extract',
         'browser_capture',
         'browser_discovery',
+        self::USER_CONFIRMED_SOURCE,
     ];
 
     protected $guarded = [];
@@ -60,12 +63,35 @@ class DealOffer extends Model
     {
         return $query
             ->whereNotNull('price')
-            ->whereIn('source', self::VERIFIED_PRICE_SOURCES);
+            ->where(function (Builder $sources): Builder {
+                return $sources
+                    ->whereIn('source', array_values(array_diff(self::VERIFIED_PRICE_SOURCES, [self::USER_CONFIRMED_SOURCE])))
+                    ->orWhere(fn (Builder $confirmed): Builder => $confirmed
+                        ->where('source', self::USER_CONFIRMED_SOURCE)
+                        ->where('fetched_at', '>=', now()->subHours(self::userConfirmationHours()))
+                    );
+            });
     }
 
     public function hasVerifiedPrice(): bool
     {
-        return $this->price !== null && in_array($this->source, self::VERIFIED_PRICE_SOURCES, true);
+        if ($this->price === null || ! in_array($this->source, self::VERIFIED_PRICE_SOURCES, true)) {
+            return false;
+        }
+
+        return $this->source !== self::USER_CONFIRMED_SOURCE || $this->hasFreshUserConfirmation();
+    }
+
+    public function hasFreshUserConfirmation(): bool
+    {
+        return $this->source === self::USER_CONFIRMED_SOURCE
+            && $this->price !== null
+            && $this->fetched_at?->gte(now()->subHours(self::userConfirmationHours())) === true;
+    }
+
+    private static function userConfirmationHours(): int
+    {
+        return max(1, (int) config('deal_hunter.user_confirmed_price_hours', 24));
     }
 
     public function recordPriceSnapshot(): ?DealOfferPrice

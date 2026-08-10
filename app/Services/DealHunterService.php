@@ -6,6 +6,7 @@ use App\Enums\ComponentType;
 use App\Jobs\VerifyDealOfferJob;
 use App\Models\DealOffer;
 use App\Models\DealSearch;
+use App\Models\Product;
 use App\Notifications\DealFoundNotification;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use SimpleXMLElement;
+use InvalidArgumentException;
 use Throwable;
 
 class DealHunterService
@@ -91,6 +93,32 @@ class DealHunterService
         $this->notifyWhenTargetReached($search->fresh(['user']));
 
         return $offers->count();
+    }
+
+    public function confirmPrice(DealOffer $offer, float $price): DealOffer
+    {
+        $search = $offer->dealSearch()->with('user')->first();
+        if (! $search instanceof DealSearch) {
+            throw new InvalidArgumentException('La cacería guardada para esta oferta ya no existe.');
+        }
+
+        $product = new Product(['component_type' => $search->component_type]);
+        $reason = PcComponentPriceGuard::rejectionReason($product, (string) $price, $price, 'USD');
+        if ($reason !== null) {
+            throw new InvalidArgumentException($reason);
+        }
+
+        $offer->forceFill([
+            'price' => round($price, 2),
+            'currency' => 'USD',
+            'source' => DealOffer::USER_CONFIRMED_SOURCE,
+            'fetched_at' => now(),
+        ])->save();
+        $offer->recordPriceSnapshot();
+
+        $this->notifyWhenTargetReached($search);
+
+        return $offer->refresh();
     }
 
     /**

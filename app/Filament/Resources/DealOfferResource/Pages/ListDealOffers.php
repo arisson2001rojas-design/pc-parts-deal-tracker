@@ -8,12 +8,14 @@ use App\Filament\Resources\DealOfferResource\Widgets\DealHunterStats;
 use App\Jobs\RefreshDealSearchJob;
 use App\Models\DealOffer;
 use App\Models\DealSearch;
+use App\Services\DealHunterService;
 use Filament\Actions;
 use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
+use InvalidArgumentException;
 
 class ListDealOffers extends ListRecords
 {
@@ -40,22 +42,19 @@ class ListDealOffers extends ListRecords
         return [
             'recent' => Tab::make('Más baratas · 7 días')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query
-                    ->whereIn('source', DealOffer::VERIFIED_PRICE_SOURCES)
-                    ->whereNotNull('price')
+                    ->verifiedPrice()
                     ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
                     ->where('fetched_at', '>=', now()->subDays(7))
                 ),
             'today' => Tab::make('Verificadas hoy')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query
-                    ->whereIn('source', DealOffer::VERIFIED_PRICE_SOURCES)
-                    ->whereNotNull('price')
+                    ->verifiedPrice()
                     ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
                     ->whereDate('fetched_at', today())
                 ),
             'target' => Tab::make('Bajo mi objetivo')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query
-                    ->whereIn('source', DealOffer::VERIFIED_PRICE_SOURCES)
-                    ->whereNotNull('price')
+                    ->verifiedPrice()
                     ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
                     ->whereHas('dealSearch', fn (Builder $search): Builder => $search
                         ->whereNotNull('target_price')
@@ -69,6 +68,45 @@ class ListDealOffers extends ListRecords
     public function getDefaultActiveTab(): string|int|null
     {
         return 'recent';
+    }
+
+    public function confirmOfferPrice(int $offerId, mixed $price): void
+    {
+        if (! is_numeric($price)) {
+            Notification::make()->title('Ingresa el precio actual en USD')->danger()->send();
+
+            return;
+        }
+
+        $price = (float) $price;
+        if (! is_finite($price) || $price <= 0 || $price > 10_000) {
+            Notification::make()->title('Ese precio está fuera del rango seguro')->danger()->send();
+
+            return;
+        }
+
+        $offer = DealOffer::query()->currentUser()->find($offerId);
+        if (! $offer instanceof DealOffer) {
+            Notification::make()->title('Oferta no encontrada')->danger()->send();
+
+            return;
+        }
+
+        try {
+            resolve(DealHunterService::class)->confirmPrice($offer, $price);
+        } catch (InvalidArgumentException $exception) {
+            Notification::make()->title('No se guardó el precio')->body($exception->getMessage())->danger()->send();
+
+            return;
+        }
+
+        $this->flushCachedTableRecords();
+        $confirmationHours = max(1, (int) config('deal_hunter.user_confirmed_price_hours', 24));
+        Notification::make()
+            ->title('Precio confirmado')
+            ->body('$'.number_format($price, 2)." será confiable durante {$confirmationHours} horas.")
+            ->success()
+            ->send();
     }
 
     protected function getHeaderActions(): array
