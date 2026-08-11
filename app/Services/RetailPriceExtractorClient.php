@@ -141,6 +141,7 @@ class RetailPriceExtractorClient
             observedAt: new DateTimeImmutable,
             latencyMs: $this->latencyMs($startedAt),
             seller: $seller,
+            pricesNormalized: true,
         );
     }
 

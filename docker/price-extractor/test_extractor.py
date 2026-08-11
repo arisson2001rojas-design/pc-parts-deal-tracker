@@ -16,6 +16,41 @@ class ExtractorTest(unittest.TestCase):
         self.assertEqual(159.99, result['candidates'][0]['price'])
         self.assertEqual('USD', result['candidates'][0]['currency'])
 
+    def test_newegg_prefers_buy_new_over_used_and_secondary_offers(self):
+        result = extract_document(
+            '<html><head><meta property="og:title" content="Samsung 870 QVO 8TB SATA SSD"></head>'
+            '<body><div class="product-buy-box">'
+            '<div class="product-pane is-collapsed"><span class="form-radiobox-title">Buy Used</span>'
+            '<div class="price-current_2026">$<strong>999</strong><sup>.49</sup></div></div>'
+            '<div class="product-pane"><span class="form-radiobox-title">Buy New</span>'
+            '<div class="price-current_2026">$<strong>1,399</strong><sup>.99</sup></div>'
+            '<button class="btn btn-primary btn-wide">Add to cart</button></div>'
+            '</div><div class="product-price"><li class="price-current">$1,477.85</li></div>'
+            '</body></html>',
+            'https://www.newegg.com/p/N82E16820147784',
+        )
+
+        self.assertEqual(1, len(result['candidates']))
+        self.assertEqual(1399.99, result['candidates'][0]['price'])
+        self.assertEqual('newegg_buy_new', result['candidates'][0]['source'])
+        self.assertEqual('in_stock', result['availability'])
+
+    def test_newegg_server_rendered_primary_pane_is_the_active_new_offer(self):
+        result = extract_document(
+            '<html><head><meta property="og:title" content="Samsung 870 QVO 8TB SATA SSD"></head>'
+            '<body><div class="product-buy-box"><div class="product-pane">'
+            '<div class="price-current_2026">$<strong>1,399</strong><sup>.99</sup></div></div>'
+            '<button class="btn btn-primary btn-wide">Add to cart</button></div>'
+            '<div class="product-price"><li class="price-current">$1,477.85</li></div>'
+            '</body></html>',
+            'https://www.newegg.com/p/N82E16820147784',
+        )
+
+        self.assertEqual(1, len(result['candidates']))
+        self.assertEqual(1399.99, result['candidates'][0]['price'])
+        self.assertEqual('newegg_buy_new', result['candidates'][0]['source'])
+        self.assertEqual('in_stock', result['availability'])
+
     def test_walmart_embedded_product_data(self):
         payload = {
             'props': {'pageProps': {'initialData': {'data': {'product': {

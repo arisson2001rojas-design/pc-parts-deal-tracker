@@ -3,7 +3,7 @@ import test from "node:test";
 
 await import("./extractors.js");
 
-const { __testing, detectComponentType, isProductPage, parseAmount } = globalThis.PriceBuddyExtractor;
+const { __testing, detectComponentType, extract, isProductPage, parseAmount } = globalThis.PriceBuddyExtractor;
 
 test("reads Newegg's 2026 split dollar and cents price", () => {
   const parts = {
@@ -116,6 +116,124 @@ test("reads Newegg's product payment amount fallback", () => {
 
   assert.equal(__testing.elementText(element), "129.99");
   assert.equal(parseAmount(__testing.elementText(element)), 129.99);
+});
+
+test("selects Newegg Buy New instead of used and marketplace prices", () => {
+  const pane = (label, price) => ({
+    querySelector: (selector) => selector === ".form-radiobox-title"
+      ? { textContent: label }
+      : null,
+    querySelectorAll: () => [{
+      getAttribute: () => null,
+      querySelector: () => null,
+      textContent: price
+    }]
+  });
+  const buyBox = {
+    querySelectorAll: () => [pane("Buy Used", "$999.49"), pane("Buy New", "$1,399.99")],
+    querySelector: (selector) => selector.includes("button")
+      ? { disabled: false, getAttribute: () => null, textContent: "Add to cart" }
+      : null,
+    textContent: "Buy Used $999.49 Buy New $1,399.99 Add to cart"
+  };
+  const fixtureDocument = {
+    querySelector: (selector) => selector === ".product-buy-box" ? buyBox : null
+  };
+
+  const result = __testing.neweggPrimaryOffer(fixtureDocument);
+
+  assert.equal(result.price, 1399.99);
+  assert.equal(result.raw, "$1,399.99");
+  assert.equal(result.availability, "in_stock");
+  assert.equal(detectComponentType("Samsung 870 QVO 8TB SATA SSD"), "ssd");
+});
+
+test("uses Newegg's sole server-rendered pane as the active new offer", () => {
+  const pane = {
+    querySelector: () => null,
+    querySelectorAll: () => [{
+      getAttribute: () => null,
+      querySelector: () => null,
+      textContent: "$1,399.99"
+    }],
+    textContent: "$1,399.99"
+  };
+  const buyBox = {
+    querySelectorAll: () => [pane],
+    querySelector: (selector) => selector.includes("button")
+      ? { disabled: false, getAttribute: () => null, textContent: "Add to cart" }
+      : null
+  };
+
+  const result = __testing.neweggPrimaryOffer({
+    querySelector: (selector) => selector === ".product-buy-box" ? buyBox : null
+  });
+
+  assert.equal(result.price, 1399.99);
+  assert.equal(result.availability, "in_stock");
+});
+
+test("builds a valid Newegg SSD Browser Radar discovery", () => {
+  const title = "SAMSUNG 870 QVO SATA III SSD 8TB 2.5-inch Internal Solid State Drive";
+  const priceElement = {
+    getAttribute: () => null,
+    querySelector: () => null,
+    textContent: "$1,399.99",
+    parentElement: null
+  };
+  const pane = {
+    querySelector: () => null,
+    querySelectorAll: () => [priceElement],
+    textContent: "$1,399.99"
+  };
+  const buyButton = {
+    disabled: false,
+    getAttribute: () => null,
+    textContent: "Add to cart"
+  };
+  const buyBox = {
+    querySelectorAll: () => [pane],
+    querySelector: (selector) => selector.includes("button") ? buyButton : null
+  };
+  const fixtureDocument = {
+    title,
+    querySelector: (selector) => {
+      if (selector === ".product-buy-box") return buyBox;
+      if (selector.includes("product:price:currency")) return { content: "USD" };
+      if (selector === "meta[property='og:title']") return { content: title };
+      return null;
+    },
+    querySelectorAll: (selector) => selector === ".product-buy-box .price-current_2026"
+      ? [priceElement]
+      : []
+  };
+  const previousDocument = globalThis.document;
+  const previousLocation = globalThis.location;
+  globalThis.document = fixtureDocument;
+  globalThis.location = {
+    hostname: "www.newegg.com",
+    href: "https://www.newegg.com/samsung-8tb-870-qvo-series-sata/p/N82E16820147784"
+  };
+
+  try {
+    const result = extract();
+
+    assert.equal(result.title, title);
+    assert.equal(result.component_type, "ssd");
+    assert.equal(result.supported_product_page, true);
+    assert.equal(result.availability, "in_stock");
+    assert.deepEqual(result.candidates, [{
+      price: 1399.99,
+      currency: "USD",
+      source: "newegg_buy_new",
+      confidence: 0.995
+    }]);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousLocation === undefined) delete globalThis.location;
+    else globalThis.location = previousLocation;
+  }
 });
 
 test("recognizes supported component product pages", () => {

@@ -79,6 +79,7 @@ class PriceFetchOrchestrator
             observedAt: $result->observedAt,
             latencyMs: $result->latencyMs,
             seller: $result->seller,
+            pricesNormalized: $result->pricesNormalized,
         );
     }
 
@@ -263,6 +264,7 @@ class PriceFetchOrchestrator
             body: $fallback->body,
             rawErrors: $fallback->rawErrors,
             notFound: $fallback->notFound,
+            pricesNormalized: $fallback->pricesNormalized,
         );
     }
 

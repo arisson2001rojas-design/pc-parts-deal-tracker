@@ -490,7 +490,12 @@ class Url extends Model
             return null;
         }
 
-        $priceFloat = CurrencyHelper::toFloat($price, locale: $this->store?->locale, iso: $this->store?->currency);
+        $hasNormalizedPrice = data_get($scrapeResult, 'price_normalized') === true
+            && (is_int($price) || is_float($price))
+            && is_finite((float) $price);
+        $priceFloat = $hasNormalizedPrice
+            ? (float) $price
+            : CurrencyHelper::toFloat($price, locale: $this->store?->locale, iso: $this->store?->currency);
         $currency = $this->store->currency ?? CurrencyHelper::getCurrency();
         $product = $this->product;
 

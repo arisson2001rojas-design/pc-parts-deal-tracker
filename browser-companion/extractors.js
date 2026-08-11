@@ -147,6 +147,39 @@
     return element.textContent?.trim() || "";
   }
 
+  function neweggPrimaryOffer(root = document) {
+    const buyBox = root.querySelector?.(".product-buy-box");
+    if (!buyBox) return null;
+
+    const panes = [...buyBox.querySelectorAll(".product-pane")];
+    const labelledNewPane = panes.find((pane) => {
+      const label = pane.querySelector?.(".form-radiobox-title")?.textContent?.trim();
+      return /^buy new$/i.test(label || "");
+    });
+    const newPane = labelledNewPane || (
+      panes.length === 1 && !panes[0].querySelector?.(".form-radiobox-title") ? panes[0] : null
+    );
+    if (!newPane) return null;
+
+    const priceElement = [...newPane.querySelectorAll(
+      ".price-current_2026, .price-current, [data-pp-amount]"
+    )].find((element) => parseAmount(elementText(element)) !== null);
+    if (!priceElement) return null;
+
+    const raw = elementText(priceElement);
+    const addToCart = buyBox.querySelector?.("button.btn-primary.btn-wide, .btn-primary.btn-wide");
+    const canBuy = addToCart
+      && /add to cart/i.test(addToCart.textContent || "")
+      && !addToCart.disabled
+      && addToCart.getAttribute?.("aria-disabled") !== "true";
+
+    return {
+      raw,
+      price: parseAmount(raw),
+      availability: canBuy ? "in_stock" : normalizeAvailability(newPane.textContent)
+    };
+  }
+
   function excluded(element) {
     let current = element;
     for (let level = 0; current && level < 4; level += 1, current = current.parentElement) {
@@ -487,6 +520,7 @@
     const structured = extractJsonLd(candidates);
     const embedded = domain === "walmart.com" ? extractWalmart(candidates) : {};
     const amazonPrimary = domain === "amazon.com" ? extractAmazonPrimary() : null;
+    const neweggPrimary = domain === "newegg.com" ? neweggPrimaryOffer() : null;
 
     [
       "meta[property='product:price:amount']",
@@ -517,6 +551,10 @@
         "USD"
       );
     }
+    if (neweggPrimary) {
+      candidates.length = 0;
+      addCandidate(candidates, neweggPrimary.raw, "newegg_buy_new", 0.995, currencyMeta);
+    }
 
     const amazonTitle = domain === "amazon.com" ? amazonProductTitle() : null;
     const title = embedded.title
@@ -529,11 +567,13 @@
       || structured.image
       || document.querySelector("meta[property='og:image']")?.content
       || null;
-    const availability = embedded.availability && embedded.availability !== "unknown"
-      ? embedded.availability
-      : structured.availability !== "unknown"
-        ? structured.availability
-        : pageAvailability(domain);
+    const availability = neweggPrimary?.availability && neweggPrimary.availability !== "unknown"
+      ? neweggPrimary.availability
+      : embedded.availability && embedded.availability !== "unknown"
+        ? embedded.availability
+        : structured.availability !== "unknown"
+          ? structured.availability
+          : pageAvailability(domain);
     const seller = embedded.seller || structured.seller || pageSeller(domain);
     const componentType = detectComponentType(title);
 
@@ -563,6 +603,7 @@
       amazonPriceText,
       amazonProductTitle,
       amazonVisible,
+      neweggPrimaryOffer,
       selectorsFor: (domain) => [...(STORE_SELECTORS[domain] || [])]
     }
   };

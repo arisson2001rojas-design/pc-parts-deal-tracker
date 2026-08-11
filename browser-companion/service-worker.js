@@ -1,6 +1,6 @@
 "use strict";
 
-const DISCOVERY_ENDPOINT = "http://127.0.0.1:8080/api/browser-discoveries";
+const DISCOVERY_ENDPOINT = "http://127.0.0.1:8281/api/browser-discoveries";
 const RETAILER_DOMAINS = [
   "amazon.com",
   "walmart.com",
@@ -51,12 +51,12 @@ async function manualCapture(message) {
   try {
     endpoint = new URL(message.endpoint);
   } catch (_error) {
-    return { ok: false, message: "Enlace de verificación inválido." };
+    return { ok: false, message: "Enlace de verificaciÃ³n invÃ¡lido." };
   }
 
   const localHost = endpoint.hostname === "localhost" || endpoint.hostname === "127.0.0.1";
   if (!localHost || endpoint.protocol !== "http:" || !endpoint.pathname.startsWith("/api/browser-capture/")) {
-    return { ok: false, message: "PriceBuddy rechazó un destino que no es local." };
+    return { ok: false, message: "PriceBuddy rechazÃ³ un destino que no es local." };
   }
 
   try {
@@ -73,12 +73,12 @@ async function passiveDiscovery(message, sender) {
     senderUrl = new URL(sender.url || "");
     pageUrl = new URL(message.payload?.page_url || "");
   } catch (_error) {
-    return { ok: false, message: "Página de producto inválida." };
+    return { ok: false, message: "PÃ¡gina de producto invÃ¡lida." };
   }
 
   if (senderUrl.protocol !== "https:" || pageUrl.protocol !== "https:"
       || senderUrl.hostname !== pageUrl.hostname || !supportedRetailer(pageUrl.hostname)) {
-    return { ok: false, message: "PriceBuddy rechazó una captura fuera de las tiendas permitidas." };
+    return { ok: false, message: "PriceBuddy rechazÃ³ una captura fuera de las tiendas permitidas." };
   }
 
   const price = Number(message.payload?.candidates?.[0]?.price || 0);
