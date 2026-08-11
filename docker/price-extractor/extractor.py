@@ -34,9 +34,9 @@ SITE_SELECTORS: dict[str, tuple[str, ...]] = {
         '[itemprop="price"]',
     ),
     "newegg.com": (
+        ".product-buy-box .price-current_2026",
         ".product-buy-box .price-current",
-        ".product-price .price-current",
-        ".price-current",
+        ".product-buy-box [data-pp-placement='product'][data-pp-amount]",
     ),
     "bestbuy.com": (
         ".priceView-customer-price span",
@@ -138,6 +138,53 @@ def _element_text(element: Tag) -> str:
             return f"${dollars}.{cents[:2]}"
 
     return element.get_text(" ", strip=True)
+
+
+def _newegg_primary_offer(soup: BeautifulSoup) -> tuple[str | None, str]:
+    buy_box = soup.select_one(".product-buy-box")
+    if not buy_box:
+        return None, "unknown"
+
+    panes = buy_box.select(".product-pane")
+    new_pane = next(
+        (
+            pane
+            for pane in panes
+            if (label := pane.select_one(".form-radiobox-title"))
+            and label.get_text(" ", strip=True).lower() == "buy new"
+        ),
+        None,
+    )
+    # Newegg's server-rendered response can contain only the selected New pane;
+    # the Used/New radio labels are added later by client-side rendering.
+    if new_pane is None and len(panes) == 1 and not panes[0].select_one(".form-radiobox-title"):
+        new_pane = panes[0]
+    if not new_pane:
+        return None, "unknown"
+
+    raw_price = next(
+        (
+            raw
+            for element in new_pane.select(
+                ".price-current_2026, .price-current, [data-pp-amount]"
+            )
+            if (raw := _element_text(element)) and _number(raw) is not None
+        ),
+        None,
+    )
+    if raw_price is None:
+        return None, "unknown"
+
+    add_to_cart = buy_box.select_one("button.btn-primary.btn-wide, .btn-primary.btn-wide")
+    if (
+        add_to_cart
+        and "add to cart" in add_to_cart.get_text(" ", strip=True).lower()
+        and not add_to_cart.has_attr("disabled")
+        and add_to_cart.get("aria-disabled") != "true"
+    ):
+        return raw_price, "in_stock"
+
+    return raw_price, _availability(new_pane.get_text(" ", strip=True))
 
 
 def _excluded(element: Tag) -> bool:
@@ -303,6 +350,9 @@ def extract_document(html: str, url: str) -> dict[str, Any]:
     embedded_availability = "unknown"
     if domain == "walmart.com":
         embedded_title, embedded_image, embedded_availability, embedded_seller = _walmart_embedded(soup, candidates)
+    newegg_price, newegg_availability = (
+        _newegg_primary_offer(soup) if domain == "newegg.com" else (None, "unknown")
+    )
 
     for selector in (
         'meta[property="product:price:amount"]',
@@ -313,7 +363,10 @@ def extract_document(html: str, url: str) -> dict[str, Any]:
         if element:
             _add(candidates, element.get("content"), "meta", 0.88, meta_currency)
 
-    if domain:
+    if newegg_price is not None:
+        candidates.clear()
+        _add(candidates, newegg_price, "newegg_buy_new", 0.995, meta_currency)
+    elif domain:
         for selector in SITE_SELECTORS[domain]:
             for element in soup.select(selector)[:4]:
                 if not _excluded(element):
@@ -330,7 +383,9 @@ def extract_document(html: str, url: str) -> dict[str, Any]:
     image = embedded_image or structured_image
     if not image and image_meta:
         image = image_meta.get("content")
-    availability = embedded_availability if embedded_availability != "unknown" else structured_availability
+    availability = newegg_availability if newegg_availability != "unknown" else (
+        embedded_availability if embedded_availability != "unknown" else structured_availability
+    )
     if availability == "unknown":
         availability = _page_availability(soup, domain)
     seller = embedded_seller or structured_seller or _page_seller(soup, domain)

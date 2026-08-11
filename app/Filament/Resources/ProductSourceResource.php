@@ -25,7 +25,13 @@ class ProductSourceResource extends Resource
 
     protected static ?string $model = ProductSource::class;
 
-    protected static ?string $navigationLabel = 'Source';
+    protected static ?string $navigationLabel = 'Fuentes de productos';
+
+    protected static ?string $navigationGroup = 'Configuración avanzada';
+
+    protected static ?string $modelLabel = 'fuente de productos';
+
+    protected static ?string $pluralModelLabel = 'fuentes de productos';
 
     protected static ?int $navigationSort = 60;
 
@@ -106,7 +112,9 @@ class ProductSourceResource extends Resource
                         ->searchable()
                         ->weight(FontWeight::Bold)
                         ->description(fn (ProductSource $record) => $record->type_label)
-                        ->sortable(),
+                        ->sortable()
+                        ->wrap()
+                        ->extraAttributes(['class' => 'min-w-0']),
                     Tables\Columns\TextColumn::make('store.name')
                         ->grow(false)
                         ->extraAttributes(['class' => 'min-w-36 md:flex md:justify-start pr-4'])
@@ -115,10 +123,7 @@ class ProductSourceResource extends Resource
                         ->grow(false)
                         ->badge()
                         ->searchable(),
-                    Tables\Columns\TextColumn::make('user.name')
-                        ->grow(false)
-                        ->sortable(),
-                ])->from('sm'),
+                ])->from('md'),
             ])
             ->recordUrl(fn (ProductSource $record): string => self::getUrl('search', ['record' => $record]))
             ->defaultSort('name')
@@ -130,10 +135,10 @@ class ProductSourceResource extends Resource
             ])
             ->actions([
                 Tables\Actions\Action::make('search')
-                    ->label('Search')
+                    ->label('Buscar')
                     ->icon('heroicon-o-magnifying-glass')
                     ->url(fn (ProductSource $record): string => self::getUrl('search', ['record' => $record])),
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\EditAction::make()->label('Editar'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -142,7 +147,13 @@ class ProductSourceResource extends Resource
             ])
             ->modifyQueryUsing(function (Builder $query) {
                 $query->currentUser()->with(['store']);
-            });
+            })
+            ->emptyStateHeading('No hay fuentes de productos')
+            ->emptyStateDescription('Las fuentes son una configuración avanzada para buscar productos en sitios externos.')
+            ->emptyStateIcon('heroicon-o-rectangle-stack')
+            ->emptyStateActions([
+                Tables\Actions\CreateAction::make()->label('Nueva fuente'),
+            ]);
     }
 
     public static function getRelations(): array

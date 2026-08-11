@@ -2,7 +2,7 @@
 
 ## Branch
 
-`codex/pc-parts-mvp`
+`codex/ui-stabilization`
 
 ## Known base
 
@@ -32,6 +32,22 @@
 - SeleniumBase fallback.
 - PriceFetchResult and PriceFetchStatus.
 - Canonical availability resolution fix.
+- UI stabilization for Dashboard, Products, PC Parts, PC Builds, Deal Hunter,
+  Tags, Stores, and Product Sources.
+- Responsive deal/component cards with stable image, title, metadata, price,
+  and action regions.
+- PC Build component-type filtering with server-side type validation.
+- Dashboard low-price counts now exclude flat or insufficient histories.
+- Product badges use warning, decision, and tracking priority.
+
+## UI conventions
+
+- Cards stack on mobile and keep price/actions visually distinct on desktop.
+- Product titles wrap to two lines and retain a full-title tooltip.
+- Charts appear only when comparable historical prices exist.
+- Empty lists explain the next action and expose one clear CTA.
+- User-facing PC shopping flows are Spanish; advanced upstream/system screens
+  remain a documented localization debt.
 
 ## Invariants
 
@@ -53,13 +69,15 @@
 - Amazon seller cleanup.
 - Optimize `regenerate-price-cache`.
 - Deal Score and historical comparison later.
+- Complete localization of upstream System, Settings, Search, and core actions.
+- Final visual acceptance pass on the supported desktop/tablet/mobile widths.
 
 ## Risks
 
 - Backend dedupe window is 300 seconds.
 - Pauses created before `paused_by_user` have no recorded provenance.
-- The working tree contains multiple uncommitted phases.
+- The UI stabilization working tree remains uncommitted pending visual review.
 
 ## Next exact action
 
-Commit the integration, push the branch, and verify CI.
+Complete the manual visual review, then prepare the UI milestone checkpoint.

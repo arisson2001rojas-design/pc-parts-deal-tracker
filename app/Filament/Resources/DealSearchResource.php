@@ -100,8 +100,8 @@ class DealSearchResource extends Resource
                         RefreshDealSearchJob::dispatch($record->getKey());
                         Notification::make()->title('Rastreo iniciado')->success()->send();
                     }),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\EditAction::make()->label('Editar'),
+                Tables\Actions\DeleteAction::make()->label('Eliminar'),
             ])
             ->defaultSort('name')
             ->poll('15s')

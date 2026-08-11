@@ -12,8 +12,8 @@ class ListStores extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            StoreResource\Actions\ImportStoreAction::make(),
-            StoreResource\Actions\CreateAction::make(),
+            StoreResource\Actions\ImportStoreAction::make()->label('Importar'),
+            StoreResource\Actions\CreateAction::make()->label('Añadir tienda')->color('primary'),
         ];
     }
 }

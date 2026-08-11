@@ -106,7 +106,13 @@ class PriceFetchOrchestratorTest extends TestCase
             'store_id' => $store->getKey(),
         ]);
 
-        $stored = $url->updatePrice();
+        $scraper = Mockery::mock(ScrapeUrl::class, [self::PRODUCT_URL])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $scraper->shouldReceive('getStore')->andReturn($store);
+        $scraper->shouldNotReceive('scrapeUrl');
+
+        $stored = $url->updatePrice(null, $scraper->scrape());
 
         $this->assertSame(159.99, (float) $stored?->price);
         $this->assertDatabaseCount('prices', 1);
@@ -114,6 +120,41 @@ class PriceFetchOrchestratorTest extends TestCase
             $url->fresh()->getAvailabilityStatus(),
             'In-stock URLs use null as their persisted availability representation.',
         );
+    }
+
+    public function test_normalized_http_price_ignores_display_locale_and_clears_stale_stock(): void
+    {
+        $store = $this->store('api', 'es');
+        $this->fakeExtractorSuccess(availability: 'in_stock', price: 1399.99);
+        $url = Url::factory()->create([
+            'url' => self::PRODUCT_URL,
+            'store_id' => $store->getKey(),
+            'availability' => StockStatus::OutOfStock,
+        ]);
+        $url->prices()->create([
+            'price' => 1477.85,
+            'unit_price' => 1477.85,
+            'price_factor' => 1,
+            'store_id' => $store->getKey(),
+        ]);
+
+        $scraper = Mockery::mock(ScrapeUrl::class, [self::PRODUCT_URL])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $scraper->shouldReceive('getStore')->andReturn($store);
+        $scraper->shouldNotReceive('scrapeUrl');
+
+        $scrape = $scraper->scrape();
+        $this->assertArrayHasKey('price', $scrape, json_encode($scrape));
+        $this->assertSame(1399.99, $scrape['price']);
+        $this->assertTrue($scrape['price_normalized']);
+        $this->assertSame('in_stock', $scrape['availability']);
+
+        $stored = $url->updatePrice(null, $scrape);
+
+        $this->assertSame(1399.99, (float) $stored?->price);
+        $this->assertDatabaseCount('prices', 2);
+        $this->assertNull($url->fresh()->getAvailabilityStatus());
     }
 
     public function test_soft_404_marker_survives_orchestrator_and_url_persistence(): void
@@ -339,19 +380,19 @@ class PriceFetchOrchestratorTest extends TestCase
         $this->assertSame('129.99', $result->candidates[0]['amount']);
     }
 
-    private function store(string $scraperService): Store
+    private function store(string $scraperService, string $locale = 'en_US'): Store
     {
         return Store::factory()->create([
             'domains' => [['domain' => 'www.newegg.com']],
             'settings' => [
                 'scraper_service' => $scraperService,
                 'scraper_service_settings' => '',
-                'locale_settings' => ['locale' => 'en_US', 'currency' => 'USD'],
+                'locale_settings' => ['locale' => $locale, 'currency' => 'USD'],
             ],
         ]);
     }
 
-    private function fakeExtractorSuccess(string $availability): void
+    private function fakeExtractorSuccess(string $availability, float $price = 159.99): void
     {
         Http::fake([
             'price-extractor.test/extract' => Http::response([
@@ -361,7 +402,7 @@ class PriceFetchOrchestratorTest extends TestCase
                     'image_url' => 'https://images.example/cpu.jpg',
                     'availability' => $availability,
                     'candidates' => [[
-                        'price' => 159.99,
+                        'price' => $price,
                         'currency' => 'USD',
                         'source' => 'site_specific',
                         'confidence' => 0.96,

@@ -22,11 +22,7 @@
                     <x-product-image :product="$product" />
                 </div>
                 <div class="my-1 flex flex-col min-w-0 justify-center" style="width: calc(100% - 5rem)">
-                    <h3
-                        class="mb-1 mt-2 text-sm text-gray-500 dark:text-gray-400 font-bold truncate min-w-0"
-                        style="max-width: 13rem"
-                        title="{{ $product->title }}"
-                    >
+                    <h3 class="mb-1 mt-2 line-clamp-2 min-w-0 pe-2 text-sm font-bold leading-5 text-gray-600 dark:text-gray-300" title="{{ $product->title }}">
                         {{ $product->title }}
                     </h3>
                     <div>
@@ -64,9 +60,11 @@
                 </div>
             </a>
 
-            <div class="bg-custom-400/10 hover:bg-custom-400/20 rounded-br overflow-hidden">
-                <x-range-chart :product="$product" height="40px"/>
-            </div>
+            @if ($product->hasComparablePriceHistory())
+                <div class="bg-custom-400/10 hover:bg-custom-400/20 overflow-hidden rounded-br">
+                    <x-range-chart :product="$product" height="40px"/>
+                </div>
+            @endif
 
         </div>
         <div class="pb-expandable-stat__context">

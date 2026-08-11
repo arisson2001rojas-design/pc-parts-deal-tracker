@@ -302,8 +302,7 @@ class ProductSourceResourceTest extends TestCase
             ->assertCanSeeTableRecords([$source])
             ->assertTableColumnExists('name')
             ->assertTableColumnExists('store.name')
-            ->assertTableColumnExists('status')
-            ->assertTableColumnExists('user.name');
+            ->assertTableColumnExists('status');
     }
 
     public function test_can_render_search_page()

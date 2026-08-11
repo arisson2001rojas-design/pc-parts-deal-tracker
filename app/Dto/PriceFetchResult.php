@@ -36,6 +36,7 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
         public string $body = '',
         public array $rawErrors = [],
         public bool $notFound = false,
+        public bool $pricesNormalized = false,
     ) {}
 
     /**
@@ -57,6 +58,7 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
             'final_url' => $this->finalUrl,
             'title' => $this->title,
             'price' => $candidate['amount'] ?? null,
+            'price_normalized' => $this->pricesNormalized && $candidate !== null,
             'currency' => $candidate['currency'] ?? null,
             'image' => $this->image,
             'availability' => $this->availability,
@@ -142,6 +144,7 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
             'latencyMs' => $this->latencyMs,
             'error' => $this->error,
             'notFound' => $this->notFound,
+            'pricesNormalized' => $this->pricesNormalized,
         ];
     }
 

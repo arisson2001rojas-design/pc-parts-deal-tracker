@@ -22,7 +22,9 @@
     "#twister",
     "[id*='variation']",
     ".product-buy-box",
+    ".product-pane",
     ".price-current",
+    ".price-current_2026",
     "[data-automation-id='product-price']",
     "[data-testid='product-price']",
     "[itemprop='price']"

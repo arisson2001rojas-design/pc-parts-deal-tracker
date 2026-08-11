@@ -315,6 +315,8 @@ class DealHunterTest extends TestCase
 
         $this->get(DealOfferResource::getUrl('index'))
             ->assertOk()
+            ->assertSee('pc-deal-offer-card', false)
+            ->assertSee('Ver producto')
             ->assertSee('Revisar precio')
             ->assertSee('Historial');
         $this->get(DealOfferResource::getUrl('view', ['record' => DealOffer::query()->firstOrFail()]))

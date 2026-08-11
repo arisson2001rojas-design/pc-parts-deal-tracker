@@ -25,7 +25,7 @@ globalThis.chrome = {
 
 globalThis.fetch = async (url, options) => {
   fetchCalls += 1;
-  assert.equal(url, "http://127.0.0.1:8080/api/browser-discoveries");
+  assert.equal(url, "http://127.0.0.1:8281/api/browser-discoveries");
   assert.equal(options.credentials, "omit");
   assert.equal(options.headers["X-PriceBuddy-Companion"], "1");
   return {

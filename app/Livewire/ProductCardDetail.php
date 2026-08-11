@@ -43,6 +43,7 @@ class ProductCardDetail extends Component implements HasActions, HasForms
     public function addUrlAction(): Action
     {
         return AddUrlAction::make('addUrl')
+            ->label('Añadir URL')
             ->record($this->product)
             ->size('sm');
     }
@@ -50,6 +51,7 @@ class ProductCardDetail extends Component implements HasActions, HasForms
     public function fetchAction(): Action
     {
         return Action::make('fetch')
+            ->label('Actualizar')
             ->size('sm')
             ->color('gray')
             ->icon('heroicon-o-rocket-launch')
@@ -59,14 +61,14 @@ class ProductCardDetail extends Component implements HasActions, HasForms
                     UpdateAllPricesJob::dispatch([$this->product->id]);
 
                     Notification::make('fetched_prices')
-                        ->title(__('Prices updating in the background'))
+                        ->title('Precios actualizándose en segundo plano')
                         ->success()
                         ->send();
 
                     $this->dispatch('$refresh');
                 } catch (Exception $e) {
                     Notification::make('fetch_failed')
-                        ->title(__('Couldn\'t fetch the product, refer to logs'))
+                        ->title('No se pudo actualizar el producto; revisa los registros')
                         ->danger()
                         ->send();
                 }
@@ -76,6 +78,7 @@ class ProductCardDetail extends Component implements HasActions, HasForms
     public function editAction(): Action
     {
         return Action::make('edit')
+            ->label('Editar')
             ->size('sm')
             ->color('gray')
             ->icon('heroicon-o-pencil')
@@ -86,6 +89,7 @@ class ProductCardDetail extends Component implements HasActions, HasForms
     public function deleteAction(): Action
     {
         return Action::make('delete')
+            ->label('Eliminar')
             ->size('sm')
             ->icon('heroicon-o-trash')
             ->color('danger')
@@ -97,7 +101,7 @@ class ProductCardDetail extends Component implements HasActions, HasForms
                 $this->product->delete();
 
                 Notification::make('deleted_product')
-                    ->title('Product deleted')
+                    ->title('Producto eliminado')
                     ->success()
                     ->send();
 

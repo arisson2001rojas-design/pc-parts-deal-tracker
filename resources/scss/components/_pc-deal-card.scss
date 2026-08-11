@@ -1,34 +1,51 @@
-.fi-ta-content-grid:has(.pc-deal-card) {
+.fi-ta-content:has(.pc-ui-card) {
+    overflow-x: hidden;
+}
+
+.fi-ta-table:has(.pc-ui-card) .fi-ta-cell,
+.fi-ta-table:has(.pc-ui-card) .fi-ta-col-wrp {
+    min-width: 0;
+    white-space: normal;
+}
+
+.pc-ui-card {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    white-space: normal;
+}
+
+.fi-ta-content-grid:has(.pc-ui-card) {
     grid-template-columns: minmax(0, 1fr) !important;
     align-items: stretch;
 }
 
-.fi-ta-content-grid:has(.pc-deal-card) > .fi-ta-record,
-.fi-ta-content-grid:has(.pc-deal-card) .pc-deal-card {
+.fi-ta-content-grid:has(.pc-ui-card) > .fi-ta-record,
+.fi-ta-content-grid:has(.pc-ui-card) .pc-ui-card {
     min-width: 0;
     width: 100%;
     max-width: 100%;
 }
 
-.fi-ta-content-grid:has(.pc-deal-card) > .fi-ta-record {
+.fi-ta-content-grid:has(.pc-ui-card) > .fi-ta-record {
     overflow: hidden;
 }
 
-.fi-ta-content-grid:has(.pc-deal-card) > .fi-ta-record > div,
-.fi-ta-content-grid:has(.pc-deal-card) > .fi-ta-record > div > div,
-.fi-ta-content-grid:has(.pc-deal-card) > .fi-ta-record .fi-ta-col {
+.fi-ta-content-grid:has(.pc-ui-card) > .fi-ta-record > div,
+.fi-ta-content-grid:has(.pc-ui-card) > .fi-ta-record > div > div,
+.fi-ta-content-grid:has(.pc-ui-card) > .fi-ta-record .fi-ta-col {
     min-width: 0;
     height: 100%;
 }
 
 @media screen and (min-width: 1024px) {
-    .fi-ta-content-grid:has(.pc-deal-card) {
+    .fi-ta-content-grid:has(.pc-part-card) {
         grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     }
 }
 
 @media screen and (min-width: 1536px) {
-    .fi-ta-content-grid:has(.pc-deal-card) {
+    .fi-ta-content-grid:has(.pc-part-card) {
         grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
     }
 }

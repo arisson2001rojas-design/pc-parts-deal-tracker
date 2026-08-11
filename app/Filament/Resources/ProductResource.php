@@ -30,8 +30,6 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\HtmlString;
-use Illuminate\Support\Str;
 use Illuminate\View\ComponentAttributeBag;
 
 class ProductResource extends Resource
@@ -41,6 +39,12 @@ class ProductResource extends Resource
     protected static ?int $navigationSort = -1;
 
     protected static ?string $navigationIcon = 'heroicon-o-shopping-cart';
+
+    protected static ?string $navigationLabel = 'Productos';
+
+    protected static ?string $modelLabel = 'producto';
+
+    protected static ?string $pluralModelLabel = 'productos';
 
     protected static ?string $recordTitleAttribute = 'title';
 
@@ -310,21 +314,23 @@ class ProductResource extends Resource
                                 'class' => 'rounded-md p-1 bg-white mr-2',
                                 'onerror' => "this.onerror=null;this.src='/images/pc-part-placeholder.svg';",
                             ])
-                            ->label('Image')
+                            ->label('Imagen')
                             ->url(fn ($record): string => $record->action_urls['view'])
                             ->grow(false),
 
                         Tables\Columns\Layout\Stack::make([
                             TextColumn::make('title')
                                 ->searchable()
-                                ->formatStateUsing(fn ($state): HtmlString => new HtmlString('<span title="'.$state.'">'.Str::limit($state, 50).'</span>'))
                                 ->sortable()
+                                ->lineClamp(2)
+                                ->wrap()
+                                ->tooltip(fn (Product $record): string => $record->title)
                                 ->weight(FontWeight::Bold)
-                                ->extraAttributes(['class' => 'pr-4 min-w-40'])
+                                ->extraAttributes(['class' => 'min-w-0 pe-2 leading-5'])
                                 ->url(fn (Product $record): string => $record->action_urls['view']),
 
                             TextColumn::make('component_type')
-                                ->label('Component')
+                                ->label('Componente')
                                 ->badge()
                                 ->formatStateUsing(function ($state): string {
                                     $type = $state instanceof ComponentType ? $state : ComponentType::tryFrom((string) $state);
@@ -339,39 +345,40 @@ class ProductResource extends Resource
 
                             Tables\Columns\ViewColumn::make('badges')
                                 ->view('components.product-badges')
-                                ->viewData(['attributes' => new ComponentAttributeBag(['class' => 'flex md:gap-3 flex-col md:flex-row'])]),
+                                ->viewData(['attributes' => new ComponentAttributeBag(['class' => 'flex flex-wrap gap-2'])]),
 
                             TextColumn::make('tags')
                                 ->color(Color::Gray)
                                 ->formatStateUsing(fn ($record): string => $record->tags->pluck('name')->join(', '))
-                                ->label('Tags')
+                                ->label('Etiquetas')
                                 ->url(null)
                                 ->grow(false)
                                 ->extraAttributes(['class' => 'mt-2 text-xs']),
-                        ]),
-                    ])->extraAttributes(['class' => 'max-w-md mb-2']),
+                        ])->extraAttributes(['class' => 'min-w-0']),
+                    ])->extraAttributes(['class' => 'mb-2 w-full min-w-0 md:mb-0 md:max-w-md']),
 
                     ProductCardColumn::make('product_card')
-                        ->label('Detail'),
-                ])->extraAttributes(['class' => 'w-full'])->from('sm'),
+                        ->label('Precio y detalles')
+                        ->extraAttributes(['class' => 'min-w-0']),
+                ])->extraAttributes(['class' => 'w-full min-w-0 items-start gap-4'])->from('md'),
             ])
             ->filters([
                 SelectFilter::make('status')
                     ->options(Statuses::class)
-                    ->label('Status')
+                    ->label('Estado')
                     ->native(false),
                 SelectFilter::make('component_type')
-                    ->label('Component type')
+                    ->label('Tipo de componente')
                     ->options(ComponentType::class)
                     ->native(false),
                 SelectFilter::make('lowest_in_period')
-                    ->label('Current price is lowest in')
-                    ->placeholder('All time')
+                    ->label('Precio mínimo en')
+                    ->placeholder('Todo el historial')
                     ->options([
-                        '7' => 'Last week',
-                        '30' => 'Last month',
-                        '90' => 'Last 90 days',
-                        '365' => 'Last year',
+                        '7' => 'Última semana',
+                        '30' => 'Último mes',
+                        '90' => 'Últimos 90 días',
+                        '365' => 'Último año',
                     ])
                     ->query(function (Builder $query, array $data): void {
                         if (! empty($data['value'])) {
@@ -380,19 +387,19 @@ class ProductResource extends Resource
                     }),
                 SelectFilter::make('tags')
                     ->relationship('tags', 'name')
-                    ->label('Tags')
+                    ->label('Etiquetas')
                     ->multiple()
                     ->native(false),
                 Tables\Filters\TernaryFilter::make('paused')
-                    ->label('Checking')
-                    ->placeholder('All')
-                    ->trueLabel('Paused only')
-                    ->falseLabel('Active only'),
+                    ->label('Monitoreo')
+                    ->placeholder('Todos')
+                    ->trueLabel('Solo pausados')
+                    ->falseLabel('Solo activos'),
             ])
             ->paginated(AdminPanelProvider::DEFAULT_PAGINATION)
             ->defaultSort('created_at', 'desc')
             ->actions([
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\EditAction::make()->label('Editar'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

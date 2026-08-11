@@ -11,10 +11,12 @@ class ListPcParts extends ListRecords
 {
     protected static string $resource = PcPartResource::class;
 
+    protected static ?string $title = 'Catálogo de componentes';
+
     public function getTabs(): array
     {
         return [
-            'today' => Tab::make('Cheapest today')
+            'today' => Tab::make('Más barato hoy')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query
                     ->whereHas('currentUserProduct', fn (Builder $productQuery): Builder => $productQuery
                         ->where('current_price', '>', 0)
@@ -23,9 +25,9 @@ class ListPcParts extends ListRecords
                         )
                     )
                 ),
-            'tracked' => Tab::make('Tracked')
+            'tracked' => Tab::make('Monitoreados')
                 ->modifyQueryUsing(fn (Builder $query): Builder => $query->whereHas('currentUserProduct')),
-            'all' => Tab::make('All catalog'),
+            'all' => Tab::make('Todo el catálogo'),
         ];
     }
 
