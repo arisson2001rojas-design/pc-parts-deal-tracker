@@ -14,8 +14,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
-use SimpleXMLElement;
 use InvalidArgumentException;
+use SimpleXMLElement;
 use Throwable;
 
 class DealHunterService
@@ -343,6 +343,11 @@ class DealHunterService
             ComponentType::Ram => (bool) preg_match('/\b(?:ram|memory|ddr[345]|so-?dimm)\b/i', $title),
             ComponentType::Ssd => (bool) preg_match('/\b(?:ssd|solid[ -]state|nvme|m\.?2)\b/i', $title),
             ComponentType::Psu => (bool) preg_match('/\b(?:psu|power\s+suppl(?:y|ies))\b/i', $title),
+            ComponentType::Motherboard,
+            ComponentType::Hdd,
+            ComponentType::Sshd,
+            ComponentType::CpuCooler,
+            ComponentType::PcCase,
             ComponentType::Other => true,
         };
     }

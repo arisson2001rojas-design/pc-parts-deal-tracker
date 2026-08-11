@@ -93,7 +93,7 @@ class PcBuildResource extends Resource
                     ->addActionLabel('Add another component')
                     ->reorderable(false),
             ])
-                ->description('Search the open CPU, GPU, RAM, SSD, and PSU catalog. Selecting a part starts daily price tracking automatically.'),
+                ->description('Search the open CPU, GPU, motherboard, RAM, SSD/HDD/SSHD, CPU cooler, case, and PSU catalog. Selecting a part starts price tracking automatically about every 8 hours.'),
 
             Forms\Components\Section::make('What the total includes')
                 ->schema([
@@ -156,7 +156,7 @@ class PcBuildResource extends Resource
                 ]),
             ])
             ->emptyStateHeading('Compare a complete PC build')
-            ->emptyStateDescription('Group tracked CPU, GPU, RAM, SSD, and power-supply listings to see their cheapest combined price.')
+            ->emptyStateDescription('Group tracked CPU, GPU, motherboard, RAM, storage, CPU cooler, case, and power-supply listings to see their cheapest combined price.')
             ->emptyStateIcon('heroicon-o-computer-desktop')
             ->emptyStateActions([
                 Tables\Actions\CreateAction::make()->label('Create PC build'),

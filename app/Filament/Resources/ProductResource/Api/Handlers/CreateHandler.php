@@ -44,12 +44,22 @@ class CreateHandler extends Handlers
         );
 
         if ($urlModel) {
+            $product = $urlModel->product;
+
             if (filled(data_get($values, 'component_type'))) {
-                $urlModel->product->update(['component_type' => data_get($values, 'component_type')]);
+                $product->component_type = data_get($values, 'component_type');
+            }
+
+            if (array_key_exists('paused', $values)) {
+                $product->setUserPaused((bool) $values['paused']);
+            }
+
+            if ($product->isDirty()) {
+                $product->save();
             }
 
             return response()->json([
-                'data' => new ProductTransformer($urlModel->product),
+                'data' => new ProductTransformer($product),
                 'message' => 'Product created',
             ], 201);
         }

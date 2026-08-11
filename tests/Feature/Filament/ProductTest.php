@@ -4,6 +4,8 @@ namespace Tests\Feature\Filament;
 
 use App\Enums\Statuses;
 use App\Filament\Resources\ProductResource;
+use App\Filament\Resources\ProductResource\Actions\PauseBulkAction;
+use App\Filament\Resources\ProductResource\Actions\ResumeBulkAction;
 use App\Filament\Resources\ProductResource\Pages\CreateProduct;
 use App\Models\Product;
 use App\Models\Store;
@@ -24,6 +26,8 @@ class ProductTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        $this->withoutVite();
 
         User::query()->delete();
 
@@ -87,6 +91,59 @@ class ProductTest extends TestCase
         $this->assertSame(Statuses::Published, $product->status);
         $this->assertSame(80.0, $product->notify_price);
         $this->assertSame(5.0, $product->notify_percent);
+    }
+
+    public function test_edit_form_records_explicit_pause_and_resume_decisions(): void
+    {
+        $product = Product::factory()->create([
+            'user_id' => $this->user->getKey(),
+            'paused' => false,
+            'paused_by_user' => false,
+        ]);
+        $this->actingAs($this->user);
+        $params = ['record' => $product->getKey()];
+
+        Livewire::test(ProductResource\Pages\EditProduct::class, $params)
+            ->fillForm(['paused' => true])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        $product->refresh();
+        $this->assertTrue($product->paused);
+        $this->assertTrue($product->paused_by_user);
+
+        Livewire::test(ProductResource\Pages\EditProduct::class, $params)
+            ->fillForm(['paused' => false])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        $product->refresh();
+        $this->assertFalse($product->paused);
+        $this->assertFalse($product->paused_by_user);
+    }
+
+    public function test_bulk_actions_record_explicit_pause_and_resume_decisions(): void
+    {
+        $product = Product::factory()->create([
+            'user_id' => $this->user->getKey(),
+            'paused' => false,
+            'paused_by_user' => false,
+        ]);
+        $this->actingAs($this->user);
+
+        Livewire::test(ProductResource\Pages\ListProducts::class)
+            ->callTableBulkAction(PauseBulkAction::class, [$product]);
+
+        $product->refresh();
+        $this->assertTrue($product->paused);
+        $this->assertTrue($product->paused_by_user);
+
+        Livewire::test(ProductResource\Pages\ListProducts::class)
+            ->callTableBulkAction(ResumeBulkAction::class, [$product]);
+
+        $product->refresh();
+        $this->assertFalse($product->paused);
+        $this->assertFalse($product->paused_by_user);
     }
 
     public function test_url_existing_create()

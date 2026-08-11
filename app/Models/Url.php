@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -280,8 +281,11 @@ class Url extends Model
         return ['store' => $store, 'scrape' => $scrape, 'isUnavailable' => $isUnavailable];
     }
 
-    public function updatePrice(int|float|string|null $price = null, ?array $scrapeResult = null): Price|Model|null
-    {
+    public function updatePrice(
+        int|float|string|null $price = null,
+        ?array $scrapeResult = null,
+        int $deduplicateWithinSeconds = 0,
+    ): Price|Model|null {
         if (! $this->store_id) {
             return null;
         }
@@ -352,12 +356,33 @@ class Url extends Model
 
         $priceFactor = $this->price_factor ?: 1;
 
-        return $this->prices()->create([
+        $attributes = [
             'price' => $priceFloat,
             'unit_price' => $priceFloat / $priceFactor,
             'price_factor' => $priceFactor,
             'store_id' => $this->store_id,
-        ]);
+        ];
+
+        if ($deduplicateWithinSeconds <= 0) {
+            return $this->prices()->create($attributes);
+        }
+
+        return DB::transaction(function () use ($attributes, $deduplicateWithinSeconds, $priceFloat): Price|Model {
+            self::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+
+            $latest = $this->prices()
+                ->lockForUpdate()
+                ->latest('created_at')
+                ->latest('id')
+                ->first();
+            if ($latest instanceof Price
+                && abs((float) $latest->price - $priceFloat) < 0.00001
+                && $latest->created_at->gte(now()->subSeconds($deduplicateWithinSeconds))) {
+                return $latest;
+            }
+
+            return $this->prices()->create($attributes);
+        });
     }
 
     public function syncStoredPricesForCurrentFactor(): void

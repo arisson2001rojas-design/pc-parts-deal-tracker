@@ -14,7 +14,6 @@ use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Support\Uri;
-use Illuminate\Validation\ValidationException;
 use Jez500\WebScraperForLaravel\Exceptions\DomSelectorException;
 use Jez500\WebScraperForLaravel\Facades\WebScraper;
 use Jez500\WebScraperForLaravel\WebScraperApi;
@@ -115,28 +114,24 @@ class ScrapeUrl
         }
 
         $attempt = 0;
-        $output = $this->scrapeWithPriceExtractor() ?? [];
+        $store = data_get($options, 'store') ?? $this->getStore();
 
-        if ($output === []) {
-            while ($attempt < $this->maxAttempts) {
-                $attempt++;
-
-                // Don't use cache if previous attempt failed.
-                if ($attempt > 1) {
-                    $options['use_cache'] = false;
-                }
-
-                $output = $this->scrapeUrl($options);
-
-                if ($output === false) {
-                    $attempt = $this->maxAttempts;
-                    $output = [];
-                }
-
-                if (! empty($output['title'])) {
-                    break;
-                }
-            }
+        if ($store instanceof Store) {
+            $result = resolve(PriceFetchOrchestrator::class)->fetch(
+                $this->url,
+                $store,
+                function () use ($options, $store, &$attempt): array {
+                    return $this->scrapeWithConfiguredEngine(
+                        [...$options, 'store' => $store],
+                        $attempt,
+                    );
+                },
+            );
+            $output = $result->toScrapeArray($store);
+            $output['title'] = self::preSaveTruncate($output['title']);
+            $output['image'] = self::preSaveMaxLength($output['image']);
+        } else {
+            $output = $this->scrapeWithConfiguredEngine($options, $attempt);
         }
 
         $availabilityStrategy = data_get($output, 'store.scrape_strategy.availability');
@@ -165,41 +160,36 @@ class ScrapeUrl
     }
 
     /**
-     * Use the lightweight, retailer-specific extractor before browser automation.
-     * It returns only normalized metadata and never stores the retailer HTML.
+     * Preserve the existing retry/cache behavior for whichever scraper engine the
+     * Store already configures. The orchestrator decides whether this fallback runs.
      *
-     * @return array<string, mixed>|null
+     * @param  array<string, mixed>  $options
+     * @return array<string, mixed>
      */
-    private function scrapeWithPriceExtractor(): ?array
+    private function scrapeWithConfiguredEngine(array $options, int &$attempt): array
     {
-        $store = $this->getStore();
-        if (! $store) {
-            return null;
+        $output = [];
+        while ($attempt < $this->maxAttempts) {
+            $attempt++;
+
+            // Don't use cache if previous attempt failed.
+            if ($attempt > 1) {
+                $options['use_cache'] = false;
+            }
+
+            $output = $this->scrapeUrl($options);
+            if ($output === false) {
+                $attempt = $this->maxAttempts;
+
+                return [];
+            }
+
+            if (! empty($output['title'])) {
+                break;
+            }
         }
 
-        $result = resolve(RetailPriceExtractorClient::class)->extractUrl($this->url);
-        if ($result === null) {
-            return null;
-        }
-
-        try {
-            $winner = resolve(PriceCandidateSelector::class)->select(
-                $result['candidates'],
-                expectedCurrency: (string) ($store->currency ?: 'USD'),
-            );
-        } catch (ValidationException) {
-            return null;
-        }
-
-        return [
-            'store' => $store,
-            'title' => self::preSaveTruncate($result['title']),
-            'price' => $winner['price'],
-            'image' => self::preSaveMaxLength($result['image_url']),
-            'availability' => null,
-            'body' => '',
-            'errors' => [],
-        ];
+        return $output;
     }
 
     public static function allowsAutomatedAccess(?string $url): bool
@@ -248,6 +238,7 @@ class ScrapeUrl
             $page = $scraper->get();
 
             if ($errors = $scraper->getErrors()) {
+                $output['errors'] = $errors;
                 $this->errorLog('Error scraping URL', [
                     'store_id' => $store->getKey(),
                     'errors' => $errors,
@@ -269,6 +260,16 @@ class ScrapeUrl
             $output['body'] = $page->getBody();
             $output['errors'] = $scraper->getErrors();
         } catch (Exception $e) {
+            $message = Str::lower($e->getMessage());
+            $kind = Str::contains($message, ['timed out', 'timeout', 'curl error 28'])
+                ? 'timeout'
+                : (Str::contains($message, ['connection', 'network', 'resolve host'])
+                    ? 'network_error'
+                    : 'invalid_response');
+            $output['fetch_error'] = [
+                'kind' => $kind,
+                'retryable' => in_array($kind, ['timeout', 'network_error'], true),
+            ];
             $this->errorLog('Error scraping URL', [
                 'error' => $e->getMessage(),
             ]);

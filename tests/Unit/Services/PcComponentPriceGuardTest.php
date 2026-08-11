@@ -43,6 +43,25 @@ class PcComponentPriceGuardTest extends TestCase
         $this->assertNull(PcComponentPriceGuard::rejectionReason($product, 'US$329.00', 329, 'USD'));
     }
 
+    public function test_it_applies_safe_ranges_to_the_extended_component_catalog(): void
+    {
+        foreach ([
+            [ComponentType::Motherboard, 149.99],
+            [ComponentType::Hdd, 89.99],
+            [ComponentType::Sshd, 109.99],
+            [ComponentType::CpuCooler, 39.99],
+            [ComponentType::PcCase, 79.99],
+        ] as [$type, $price]) {
+            $this->assertNull(PcComponentPriceGuard::rejectionReasonForComponent($type, $price, 'USD'));
+        }
+
+        $this->assertNotNull(PcComponentPriceGuard::rejectionReasonForComponent(
+            ComponentType::Motherboard,
+            4.99,
+            'USD',
+        ));
+    }
+
     public function test_only_configured_domains_are_disabled_for_automated_access(): void
     {
         config()->set('price_buddy.automated_access_disabled_domains', ['example.test']);

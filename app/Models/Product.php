@@ -49,6 +49,7 @@ use Illuminate\Support\Str;
  * @property ?int $refresh_interval
  * @property ?Carbon $next_check_at
  * @property bool $paused
+ * @property bool $paused_by_user
  * @property ?User $user
  * @property int $user_id
  * @property array $price_aggregates
@@ -89,6 +90,7 @@ class Product extends Model
         'next_check_at' => 'datetime',
         'refresh_interval' => 'integer',
         'paused' => 'boolean',
+        'paused_by_user' => 'boolean',
     ];
 
     public static function booted()
@@ -135,6 +137,17 @@ class Product extends Model
         $this->forceFill([
             'next_check_at' => now()->addSeconds($this->refresh_interval + $jitter),
         ])->saveQuietly();
+    }
+
+    /**
+     * Record an explicit pause or resume decision made by the user.
+     */
+    public function setUserPaused(bool $paused): static
+    {
+        return $this->forceFill([
+            'paused' => $paused,
+            'paused_by_user' => $paused,
+        ]);
     }
 
     /**

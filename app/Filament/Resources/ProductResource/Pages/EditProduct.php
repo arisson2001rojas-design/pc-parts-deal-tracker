@@ -26,6 +26,19 @@ class EditProduct extends EditRecord
         ];
     }
 
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        /** @var Product $product */
+        $product = $this->record;
+
+        if (array_key_exists('paused', $data) && (bool) $data['paused'] !== $product->paused) {
+            $product->setUserPaused((bool) $data['paused']);
+            unset($data['paused']);
+        }
+
+        return $data;
+    }
+
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('view', ['record' => $this->record]);

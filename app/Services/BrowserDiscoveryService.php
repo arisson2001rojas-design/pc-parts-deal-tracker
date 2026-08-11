@@ -19,9 +19,10 @@ class BrowserDiscoveryService
         private readonly PriceCandidateSelector $candidateSelector,
         private readonly PcComponentClassifier $classifier,
         private readonly RetailerProductUrl $productUrls,
+        private readonly CatalogTrackingService $tracking,
     ) {}
 
-    /** @return array{offer: DealOffer, part: PcPart, component_type: ComponentType} */
+    /** @return array{offer: DealOffer, part: PcPart, product: \App\Models\Product, component_type: ComponentType} */
     public function capture(array $payload): array
     {
         $product = $this->productUrls->identify((string) $payload['page_url']);
@@ -43,29 +44,67 @@ class BrowserDiscoveryService
         $user = $this->companionUser();
 
         return DB::transaction(function () use ($payload, $product, $title, $componentType, $winner, $user): array {
-            $search = DealSearch::query()->firstOrCreate(
-                [
-                    'user_id' => $user->getKey(),
-                    'query' => 'browser-radar:'.$componentType->value,
-                ],
-                [
-                    'name' => 'Radar del navegador · '.strtoupper($componentType->value),
-                    'component_type' => $componentType->value,
-                    'target_price' => null,
-                    'enabled' => false,
-                ],
-            );
+            $searchIdentity = [
+                'user_id' => $user->getKey(),
+                'query' => 'browser-radar:'.$componentType->value,
+            ];
+            $createdAt = now();
+            DealSearch::query()->insertOrIgnore([[
+                ...$searchIdentity,
+                'name' => 'Radar del navegador · '.strtoupper($componentType->value),
+                'component_type' => $componentType->value,
+                'target_price' => null,
+                'enabled' => false,
+                'created_at' => $createdAt,
+                'updated_at' => $createdAt,
+            ]]);
+            $search = DealSearch::query()->where($searchIdentity)->firstOrFail();
 
             $urlHash = hash('sha256', $product['url']);
             $offers = DealOffer::query()
+                ->with('dealSearch')
                 ->where('url_hash', $urlHash)
                 ->whereHas('dealSearch', fn (Builder $query): Builder => $query->where('user_id', $user->getKey()))
                 ->get();
-            if ($offers->isEmpty()) {
-                $offers->push(new DealOffer([
-                    'deal_search_id' => $search->getKey(),
-                    'url_hash' => $urlHash,
-                ]));
+
+            $targetOffer = $offers->firstWhere('deal_search_id', $search->getKey());
+            if (! $targetOffer instanceof DealOffer) {
+                $legacyRadarOffer = $offers->first(function (DealOffer $offer): bool {
+                    $query = (string) $offer->dealSearch->query;
+
+                    return str_starts_with($query, 'browser-radar:');
+                });
+
+                if ($legacyRadarOffer instanceof DealOffer) {
+                    $legacyRadarOffer->forceFill(['deal_search_id' => $search->getKey()])->save();
+                    $targetOffer = $legacyRadarOffer;
+                } else {
+                    $targetOffer = DealOffer::query()->firstOrCreate([
+                        'deal_search_id' => $search->getKey(),
+                        'url_hash' => $urlHash,
+                    ], [
+                        'store' => $product['store'],
+                        'title' => Str::limit($title, 1024, ''),
+                        'url' => $product['url'],
+                        'price' => $winner['price'],
+                        'fetched_at' => now(),
+                    ]);
+                    if (! $offers->contains('id', $targetOffer->getKey())) {
+                        $offers->push($targetOffer);
+                    }
+                }
+            }
+
+            $offers = DealOffer::query()
+                ->with('dealSearch')
+                ->where('url_hash', $urlHash)
+                ->whereHas('dealSearch', fn (Builder $query): Builder => $query->where('user_id', $user->getKey()))
+                ->orderBy('deal_offers.id')
+                ->lockForUpdate()
+                ->get();
+            $targetOffer = $offers->firstWhere('deal_search_id', $search->getKey());
+            if (! $targetOffer instanceof DealOffer) {
+                throw new \LogicException('The browser discovery offer could not be locked.');
             }
 
             $now = now();
@@ -88,13 +127,21 @@ class BrowserDiscoveryService
             }
 
             $part = $this->upsertCatalogPart($payload, $product, $title, $componentType);
-
-            $primaryOffer = $offers->first();
-            assert($primaryOffer instanceof DealOffer);
+            $trackedProduct = $this->tracking->trackBrowserDiscovery(
+                $part,
+                $user->getKey(),
+                $product['slug'],
+                [
+                    'price' => $winner['price'],
+                    'image_url' => $payload['image_url'] ?? null,
+                    'availability' => $payload['availability'] ?? DealOffer::AVAILABILITY_UNKNOWN,
+                ],
+            );
 
             return [
-                'offer' => $primaryOffer->fresh('dealSearch'),
+                'offer' => $targetOffer->fresh('dealSearch'),
                 'part' => $part,
+                'product' => $trackedProduct,
                 'component_type' => $componentType,
             ];
         });
@@ -132,7 +179,15 @@ class BrowserDiscoveryService
                 ->where('component_type', $componentType->value)
                 ->where('name', $title)
                 ->first()
-            ?? new PcPart(['opendb_id' => $uuid]);
+            ?? PcPart::query()->firstOrCreate(
+                ['opendb_id' => $uuid],
+                [
+                    'component_type' => $componentType->value,
+                    'name' => Str::limit($title, 1024, ''),
+                    'source_url' => $product['url'],
+                ],
+            );
+        $part = PcPart::query()->lockForUpdate()->findOrFail($part->getKey());
 
         $retailerUrls = (array) ($part->retailer_urls ?? []);
         $retailerUrls[$product['slug']] = $product['url'];

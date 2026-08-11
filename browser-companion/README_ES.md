@@ -7,9 +7,11 @@ URL, stock, vendedor, identificadores del componente y candidatos de precio.
 
 ## Modo Radar
 
-Mientras navegas, reconoce páginas de CPU, GPU, RAM, SSD y PSU y alimenta el
-catálogo y el historial local de Deal Hunter. Deduplica visitas repetidas durante
-30 minutos y descarta computadoras completas, accesorios y páginas de búsqueda.
+Mientras navegas, reconoce páginas de CPU, GPU, placas madre, RAM, SSD, HDD,
+SSHD, coolers de CPU, cases y PSU, y alimenta el catálogo y el historial local de
+Deal Hunter. Deduplica visitas repetidas durante 30 minutos, vuelve a escanear al
+cambiar de producto dentro de una tienda y descarta computadoras completas,
+accesorios y páginas de búsqueda.
 
 Pulsa el icono de la extensión para pausar **Aprender mientras navego**, ocultar
 los avisos o consultar cuántos precios ha guardado.

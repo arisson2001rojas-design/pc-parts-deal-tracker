@@ -195,6 +195,11 @@ enum StockStatus: string implements HasColor, HasIcon, HasLabel
      */
     public static function resolveAvailability(?string $value, ?AvailabilityStrategyDto $availabilityStrategy): self
     {
+        $canonical = self::tryFrom((string) $value);
+        if ($canonical !== null) {
+            return $canonical;
+        }
+
         if ($availabilityStrategy?->type === ScraperStrategyType::SchemaOrg) {
             return self::fromSchemaOrgAvailability($value);
         }

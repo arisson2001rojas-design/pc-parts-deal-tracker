@@ -33,6 +33,7 @@ class BrowserDiscoveryController extends Controller
             'data' => [
                 'offer_id' => $result['offer']->getKey(),
                 'pc_part_id' => $result['part']->getKey(),
+                'product_id' => $result['product']->getKey(),
                 'component_type' => $result['component_type']->value,
                 'price' => (float) $result['offer']->price,
                 'currency' => $result['offer']->currency,

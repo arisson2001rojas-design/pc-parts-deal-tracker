@@ -84,6 +84,6 @@ def extract():
 
     result = extract_document(html, final_url)
     if not result["title"] or not result["candidates"]:
-        return jsonify({"error": "no reliable product price found"}), 422
+        return jsonify({"error": "no reliable product price found", "data": result}), 422
 
     return jsonify({"data": result})

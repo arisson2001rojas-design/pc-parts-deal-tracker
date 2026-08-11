@@ -40,18 +40,32 @@ class PcPartsCatalogTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_it_imports_supported_open_catalog_parts_and_skips_hard_drives(): void
+    public function test_it_imports_the_extended_open_catalog(): void
     {
         $this->archivePath = $this->makeCatalogArchive();
 
         $this->artisan(SyncPcPartsCatalog::COMMAND, ['--source' => $this->archivePath])
             ->assertSuccessful();
 
-        $this->assertDatabaseCount('pc_parts', 5);
-        $this->assertDatabaseMissing('pc_parts', ['name' => 'Example HDD']);
+        $this->assertDatabaseCount('pc_parts', 10);
+
+        foreach ([
+            'Example CPU' => ComponentType::Cpu,
+            'Example GPU' => ComponentType::Gpu,
+            'Example RAM' => ComponentType::Ram,
+            'Example PSU' => ComponentType::Psu,
+            'Example SSD' => ComponentType::Ssd,
+            'Example HDD' => ComponentType::Hdd,
+            'Example SSHD' => ComponentType::Sshd,
+            'Example Motherboard' => ComponentType::Motherboard,
+            'Example PC Case' => ComponentType::PcCase,
+            'Example CPU Cooler' => ComponentType::CpuCooler,
+        ] as $name => $type) {
+            $part = PcPart::query()->where('name', $name)->firstOrFail();
+            $this->assertSame($type, $part->component_type);
+        }
 
         $cpu = PcPart::query()->where('name', 'Example CPU')->firstOrFail();
-        $this->assertSame(ComponentType::Cpu, $cpu->component_type);
         $this->assertSame('https://www.amazon.com/dp/B000TEST01', $cpu->retailer_urls['amazon']);
         $this->assertSame('https://www.walmart.com/ip/123456', $cpu->retailer_urls['walmart']);
         $this->assertSame('https://www.newegg.com/p/N82E16800000001', $cpu->retailer_urls['newegg']);
@@ -218,7 +232,9 @@ class PcPartsCatalogTest extends TestCase
             'GPU' => $this->partData('Example GPU'),
             'RAM' => $this->partData('Example RAM'),
             'PSU' => $this->partData('Example PSU'),
-            'Storage' => $this->partData('Example SSD', [], ['storage_type' => 'SSD']),
+            'Motherboard' => $this->partData('Example Motherboard'),
+            'PCCase' => $this->partData('Example PC Case'),
+            'CPUCooler' => $this->partData('Example CPU Cooler'),
         ] as $category => $data) {
             $archive->addFromString(
                 'buildcores-open-db-main/open-db/'.$category.'/'.Str::uuid().'.json',
@@ -226,10 +242,20 @@ class PcPartsCatalogTest extends TestCase
             );
         }
 
-        $archive->addFromString(
-            'buildcores-open-db-main/open-db/Storage/'.Str::uuid().'.json',
-            json_encode($this->partData('Example HDD', [], ['storage_type' => 'HDD']), JSON_THROW_ON_ERROR)
-        );
+        foreach ([
+            'SSD' => 'Example SSD',
+            'HDD' => 'Example HDD',
+            'SSHD' => 'Example SSHD',
+        ] as $storageType => $name) {
+            $archive->addFromString(
+                'buildcores-open-db-main/open-db/Storage/'.Str::uuid().'.json',
+                json_encode(
+                    $this->partData($name, [], ['storage_type' => $storageType]),
+                    JSON_THROW_ON_ERROR
+                )
+            );
+        }
+
         $archive->close();
 
         return $path;

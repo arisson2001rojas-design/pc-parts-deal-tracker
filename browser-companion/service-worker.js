@@ -10,6 +10,8 @@ const RETAILER_DOMAINS = [
   "gamestop.com"
 ];
 
+const inFlightDiscoveries = new Set();
+
 function storageGet(defaults) {
   return new Promise((resolve) => chrome.storage.local.get(defaults, resolve));
 }
@@ -81,32 +83,45 @@ async function passiveDiscovery(message, sender) {
 
   const price = Number(message.payload?.candidates?.[0]?.price || 0);
   const pageKey = `${pageUrl.origin}${pageUrl.pathname}`;
-  const now = Date.now();
-  const state = await storageGet({ recentDiscoveries: [], capturedCount: 0 });
-  const recent = state.recentDiscoveries
-    .filter((item) => now - Number(item.at || 0) < 30 * 60 * 1000)
-    .slice(0, 99);
-  if (recent.some((item) => item.key === pageKey && Number(item.price) === price)) {
-    return { ok: true, skipped: true };
+  const discoveryKey = `${pageKey}|${price}`;
+
+  if (inFlightDiscoveries.has(discoveryKey)) {
+    return { ok: true, skipped: true, reason: "in_flight" };
   }
 
+  inFlightDiscoveries.add(discoveryKey);
+
   try {
-    const data = await postJson(DISCOVERY_ENDPOINT, message.payload);
-    recent.unshift({ key: pageKey, price, at: now });
-    await storageSet({
-      recentDiscoveries: recent,
-      capturedCount: Number(state.capturedCount || 0) + 1,
-      lastDiscovery: {
-        title: String(message.payload.title || "").slice(0, 120),
-        price: Number(data.price),
-        componentType: data.component_type,
-        at: now
-      }
-    });
-    return { ok: true, data };
-  } catch (error) {
-    if (error.status === 422) return { ok: true, ignored: true };
-    return { ok: false, message: error.message };
+    const now = Date.now();
+    const state = await storageGet({ recentDiscoveries: [], capturedCount: 0 });
+    const recent = state.recentDiscoveries
+      .filter((item) => now - Number(item.at || 0) < 30 * 60 * 1000)
+      .slice(0, 99);
+
+    if (recent.some((item) => item.key === pageKey && Number(item.price) === price)) {
+      return { ok: true, skipped: true, reason: "recent" };
+    }
+
+    try {
+      const data = await postJson(DISCOVERY_ENDPOINT, message.payload);
+      recent.unshift({ key: pageKey, price, at: now });
+      await storageSet({
+        recentDiscoveries: recent,
+        capturedCount: Number(state.capturedCount || 0) + 1,
+        lastDiscovery: {
+          title: String(message.payload.title || "").slice(0, 120),
+          price: Number(data.price),
+          componentType: data.component_type,
+          at: now
+        }
+      });
+      return { ok: true, data };
+    } catch (error) {
+      if (error.status === 422) return { ok: true, ignored: true };
+      return { ok: false, message: error.message };
+    }
+  } finally {
+    inFlightDiscoveries.delete(discoveryKey);
   }
 }
 

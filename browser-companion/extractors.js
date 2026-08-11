@@ -59,14 +59,27 @@
 
   function detectComponentType(title) {
     const value = String(title || "").trim();
-    if (!value || /\b(?:laptop|notebook|chromebook|gaming\s+pc|desktop\s+computer|prebuilt|all-in-one|motherboard|mainboard|heatsink|water\s+block|thermal\s+paste|enclosure|adapter|replacement\s+fan|extension\s+cable|graphics?\s+card\s+(?:holder|support))\b|\bcpu.{0,20}(?:cooler|fan)\b|\b(?:cooler|fan).{0,20}cpu\b|\b(?:power|psu).{0,20}cable\b/i.test(value)) {
+    if (!value) return null;
+
+    const componentCompatibility = /\b(?:compatible\s+(?:with|con)|works?\s+with|for|para)\b.{0,80}\b(?:laptop|notebook|chromebook|desktop(?:\s+(?:computer|pc))?|pc\s+de\s+escritorio|computadora\s+de\s+escritorio|computadora\s+port[aá]til)\b|\b(?:laptop|notebook)\s+(?:memory|ram|ssd|nvme|hdd|hard\s+drive)\b/i.test(value);
+    const completeComputer = /\b(?:laptop|notebook|chromebook|desktop\s+(?:computer|pc)|prebuilt(?:\s+pc)?|mini\s+pc|all-in-one\s+(?:pc|computer|desktop)|gaming\s+(?:desktop|computer|pc(?:\s+(?:desktop|computer|system))?)|pc\s+de\s+escritorio|computadora\s+de\s+escritorio|computadora\s+port[aá]til)\b/i.test(value);
+    if (completeComputer && !componentCompatibility) {
       return null;
     }
-    if (/\b(?:cpu|processor|ryzen|athlon|threadripper|celeron|pentium|core\s+(?:ultra\s+)?[i3579])\b/i.test(value)) return "cpu";
-    if (/\b(?:gpu|graphics?\s+card|video\s+card|geforce|radeon|intel\s+arc)\b/i.test(value)) return "gpu";
-    if (/\b(?:psu|power\s+suppl(?:y|ies))\b/i.test(value)) return "psu";
-    if (/\b(?:ssd|solid[ -]state|nvme)\b/i.test(value)) return "ssd";
-    if (/\b(?:ram|ddr[345]|so-?dimm)\b/i.test(value) && /\b(?:ram|memory|ddr[345]|so-?dimm)\b/i.test(value)) return "ram";
+    if (/\b(?:thermal\s+paste|pasta\s+t[eé]rmica|water\s+block|storage\s+enclosure|drive\s+enclosure|adapter|replacement\s+fan|extension\s+cable|case\s+fan|chassis\s+fan|graphics?\s+card\s+(?:holder|support)|gpu\s+(?:holder|support)|(?:power|psu).{0,20}cable)\b/i.test(value)) {
+      return null;
+    }
+
+    if (/\b(?:mother\s*board|mainboard|mobo|placa\s+(?:base|madre)|tarjeta\s+madre)\b/i.test(value)) return "motherboard";
+    if (/\b(?:cpu\s+(?:air\s+|liquid\s+)?cooler|processor\s+cooler|air\s+cpu\s+cooler|tower\s+cpu\s+cooler|(?:aio|all-in-one)\s+(?:liquid\s+)?(?:cpu\s+)?cooler|liquid\s+cpu\s+cooler|cpu\s+liquid\s+cooler|cpu\s+heatsink|heatsink\s+for\s+cpu|disipador(?:\s+de|\s+para)?\s+(?:cpu|procesador)|enfriador(?:\s+de|\s+para)?\s+(?:cpu|procesador)|refrigeraci[oó]n\s+l[ií]quida(?:\s+para\s+(?:cpu|procesador))?)\b/i.test(value)) return "cpu_cooler";
+    if (/\b(?:pc\s+case|computer\s+case|gaming\s+case|atx\s+(?:mid[-\s]?tower\s+)?case|micro[-\s]?atx\s+case|mini[-\s]?itx\s+case|mid[-\s]?tower(?:\s+case)?|full[-\s]?tower(?:\s+case)?|mini[-\s]?tower(?:\s+case)?|pc\s+chassis|computer\s+chassis|gabinete(?:\s+(?:para|de)\s+(?:pc|computadora))?|caja\s+(?:para|de)\s+(?:pc|computadora))\b/i.test(value)) return "pc_case";
+    if (/\b(?:sshd|solid[-\s]?state\s+hybrid(?:\s+drive)?|hybrid\s+(?:hard\s+)?drive)\b/i.test(value)) return "sshd";
+    if (/\b(?:ssd|solid[ -]?state(?:\s+drive)?|nvme|unidad\s+de\s+estado\s+s[oó]lido)\b/i.test(value)) return "ssd";
+    if (/\b(?:hdd|hard\s+(?:disk|drive)(?:\s+drive)?|disco\s+duro)\b/i.test(value)) return "hdd";
+    if (/\b(?:psu|power\s+suppl(?:y|ies)|fuente\s+de\s+(?:poder|alimentaci[oó]n))\b/i.test(value)) return "psu";
+    if (/\b(?:gpu|graphics?\s+card|video\s+card|geforce|radeon|intel\s+arc|tarjeta\s+gr[aá]fica)\b/i.test(value)) return "gpu";
+    if (/\b(?:ram|ddr[345]|so-?dimm|dimm|memory|memoria)\b/i.test(value) && /\b(?:ram|memory|memoria|ddr[345]|so-?dimm|dimm)\b/i.test(value)) return "ram";
+    if (/\b(?:cpu|processor|procesador|ryzen|athlon|threadripper|celeron|pentium|core\s+(?:ultra\s+)?[i3579])\b/i.test(value)) return "cpu";
     return null;
   }
 
@@ -265,12 +278,215 @@
     return null;
   }
 
+  const AMAZON_NOISE_SELECTOR = [
+    ".a-carousel-card",
+    "[id^='sp_detail']",
+    "[id*='idAsinFaceoutContainer']",
+    "[class*='idAsinFaceoutContainer']",
+    "[class*='new-detail-faceout-box']",
+    "[data-csa-c-content-id*='sponsored']",
+    "[data-csa-c-content-id*='recommend']"
+  ].join(", ");
+
+  function amazonAsinFromUrl(rawUrl = location.href) {
+    let url;
+    try { url = new URL(rawUrl); } catch (_error) { return null; }
+    const match = `${url.pathname}${url.search}`.match(
+      /\/(?:dp|gp\/product|gp\/aw\/d)\/([A-Z0-9]{10})(?:[/?]|$)/i
+    );
+    return match?.[1]?.toUpperCase() || null;
+  }
+
+  function amazonNoise(element) {
+    return Boolean(element?.closest?.(AMAZON_NOISE_SELECTOR));
+  }
+
+  function amazonVisible(element) {
+    if (!element) return false;
+    if (element.closest?.("[hidden], .aok-hidden")) return false;
+    if (typeof element.getClientRects === "function" && element.getClientRects().length > 0) return true;
+    return Boolean(element.offsetWidth || element.offsetHeight);
+  }
+
+  function amazonPriceText(element) {
+    if (!element) return "";
+
+    const offscreen = element.querySelector?.(".a-offscreen")?.textContent?.trim();
+    if (offscreen && offscreen.toLowerCase() !== "null") return offscreen;
+
+    const whole = element.querySelector?.(".a-price-whole")?.textContent
+      ?.replace(/[^0-9,]/g, "")
+      ?.trim();
+    const fraction = element.querySelector?.(".a-price-fraction")?.textContent
+      ?.replace(/\D/g, "")
+      ?.slice(0, 2);
+    const symbol = element.querySelector?.(".a-price-symbol")?.textContent?.trim() || "US$";
+    if (whole) return `${symbol}${whole}${fraction ? `.${fraction}` : ""}`;
+
+    const ariaHidden = [...(element.querySelectorAll?.("[aria-hidden='true']") || [])]
+      .map((node) => node.textContent?.trim() || "")
+      .find((value) => parseAmount(value) !== null);
+    if (ariaHidden) return ariaHidden;
+
+    const text = element.textContent?.trim() || "";
+    return text.toLowerCase() === "null" ? "" : text;
+  }
+
+  function amazonScopedPrice(scope) {
+    if (!scope || amazonNoise(scope)) return null;
+
+    const label = scope.querySelector?.(
+      "#apex-pricetopay-accessibility-label, .apex-pricetopay-accessibility-label, [data-pricetopay-label]"
+    );
+    const labelText = label?.textContent?.trim() || "";
+    const labelPrice = parseAmount(labelText);
+    if (labelPrice !== null) {
+      return {
+        price: labelPrice,
+        raw: labelText,
+        source: "amazon_asin_accessibility",
+        confidence: 0.995
+      };
+    }
+
+    const priceElements = [...scope.querySelectorAll(
+      ".apex-pricetopay-value, .priceToPay"
+    )].filter((element) => !amazonNoise(element));
+
+    const visible = priceElements.filter(amazonVisible);
+    const pool = visible.length ? visible : priceElements;
+    const parsed = pool
+      .map((element) => {
+        const raw = amazonPriceText(element);
+        return { raw, price: parseAmount(raw) };
+      })
+      .filter((item) => item.price !== null);
+
+    const unique = [...new Map(
+      parsed.map((item) => [item.price.toFixed(2), item])
+    ).values()];
+
+    if (unique.length === 1) {
+      return {
+        price: unique[0].price,
+        raw: unique[0].raw,
+        source: "amazon_asin_price_to_pay",
+        confidence: 0.99
+      };
+    }
+
+    return null;
+  }
+
+  function amazonCenterFallback() {
+    const center = document.querySelector("#centerCol");
+    if (!center || amazonNoise(center)) return null;
+
+    const primary = amazonScopedPrice(center);
+    if (primary) {
+      return {
+        ...primary,
+        source: "amazon_center_price_to_pay",
+        confidence: Math.min(primary.confidence, 0.96)
+      };
+    }
+
+    const prices = [...center.querySelectorAll(".a-price .a-offscreen")]
+      .filter((element) => !amazonNoise(element))
+      .filter((element) => {
+        const owner = element.closest?.(".a-price");
+        const classes = `${owner?.className || ""} ${element.parentElement?.className || ""}`;
+        return !/basisprice|basis-price|listprice|list-price|a-text-price|strike/i.test(classes);
+      })
+      .map((element) => ({
+        raw: element.textContent?.trim() || "",
+        price: parseAmount(element.textContent)
+      }))
+      .filter((item) => item.price !== null);
+
+    const unique = [...new Map(
+      prices.map((item) => [item.price.toFixed(2), item])
+    ).values()];
+
+    if (unique.length !== 1) return null;
+
+    return {
+      price: unique[0].price,
+      raw: unique[0].raw,
+      source: "amazon_center_unique_price",
+      confidence: 0.93
+    };
+  }
+
+  function extractAmazonPrimary() {
+    const asin = amazonAsinFromUrl();
+    if (!asin) return null;
+
+    const escapedAsin = globalThis.CSS?.escape ? CSS.escape(asin) : asin;
+    const selectors = [
+      `#corePriceDisplay_desktop_feature_div[data-csa-c-asin="${escapedAsin}"]`,
+      `[data-feature-name="corePriceDisplay_desktop"][data-csa-c-asin="${escapedAsin}"]`,
+      `#corePrice_feature_div[data-csa-c-asin="${escapedAsin}"]`,
+      `#apex_offerDisplay_desktop[data-csa-c-asin="${escapedAsin}"]`,
+      "#corePriceDisplay_desktop_feature_div",
+      "#corePrice_feature_div",
+      "#apex_offerDisplay_desktop"
+    ];
+
+    const scopes = [];
+    const seen = new Set();
+    for (const selector of selectors) {
+      for (const scope of document.querySelectorAll(selector)) {
+        if (seen.has(scope) || amazonNoise(scope)) continue;
+        seen.add(scope);
+
+        const scopeAsin = scope.getAttribute?.("data-csa-c-asin")?.toUpperCase();
+        if (scopeAsin && scopeAsin !== asin) continue;
+
+        scopes.push(scope);
+      }
+    }
+
+    // Amazon often leaves stale variant prices in the DOM. Prefer the price
+    // scope that is actually rendered for the current ASIN.
+    scopes.sort((left, right) => {
+      const leftVisible = amazonVisible(left) ? 1 : 0;
+      const rightVisible = amazonVisible(right) ? 1 : 0;
+      if (leftVisible !== rightVisible) return rightVisible - leftVisible;
+
+      const leftPrimary = left.id === "corePriceDisplay_desktop_feature_div" ? 1 : 0;
+      const rightPrimary = right.id === "corePriceDisplay_desktop_feature_div" ? 1 : 0;
+      return rightPrimary - leftPrimary;
+    });
+
+    for (const scope of scopes) {
+      const result = amazonScopedPrice(scope);
+      if (result) return { ...result, asin };
+    }
+
+    const fallback = amazonCenterFallback();
+    return fallback ? { ...fallback, asin } : null;
+  }
+
+  function amazonProductTitle() {
+    const productTitle = document.querySelector("#productTitle")?.textContent?.trim();
+    if (productTitle) return productTitle;
+
+    const ogTitle = document.querySelector("meta[property='og:title']")?.content?.trim();
+    if (ogTitle && !/^(?:subtotal|cart|shopping cart|amazon\.com)$/i.test(ogTitle)) {
+      return ogTitle;
+    }
+
+    return null;
+  }
+
   function extract() {
     const candidates = [];
     const domain = domainFor(location.hostname);
     const currencyMeta = document.querySelector("meta[property='product:price:currency'], meta[itemprop='priceCurrency']")?.content || "USD";
     const structured = extractJsonLd(candidates);
     const embedded = domain === "walmart.com" ? extractWalmart(candidates) : {};
+    const amazonPrimary = domain === "amazon.com" ? extractAmazonPrimary() : null;
 
     [
       "meta[property='product:price:amount']",
@@ -291,7 +507,20 @@
       });
     }
 
+    if (amazonPrimary) {
+      candidates.length = 0;
+      addCandidate(
+        candidates,
+        amazonPrimary.price,
+        amazonPrimary.source,
+        amazonPrimary.confidence,
+        "USD"
+      );
+    }
+
+    const amazonTitle = domain === "amazon.com" ? amazonProductTitle() : null;
     const title = embedded.title
+      || amazonTitle
       || structured.title
       || document.querySelector("meta[property='og:title']")?.content
       || document.querySelector("h1")?.textContent?.trim()
@@ -330,6 +559,10 @@
     detectComponentType,
     __testing: {
       elementText,
+      amazonAsinFromUrl,
+      amazonPriceText,
+      amazonProductTitle,
+      amazonVisible,
       selectorsFor: (domain) => [...(STORE_SELECTORS[domain] || [])]
     }
   };

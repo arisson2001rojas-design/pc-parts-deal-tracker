@@ -107,6 +107,7 @@ class ProductApiTest extends TestCase
         $productData = [
             'title' => 'Test Product',
             'url' => 'https://example.com/test-product',
+            'paused' => true,
         ];
 
         $response = $this->postJson('/api/products', $productData);
@@ -137,6 +138,8 @@ class ProductApiTest extends TestCase
         $this->assertDatabaseHas('products', [
             'title' => 'Test Product',
             'user_id' => $this->user->id,
+            'paused' => true,
+            'paused_by_user' => true,
         ]);
     }
 
@@ -375,7 +378,11 @@ class ProductApiTest extends TestCase
 
     public function test_can_pause_and_resume_product_via_api(): void
     {
-        $product = Product::factory()->create(['user_id' => $this->user->id, 'paused' => false]);
+        $product = Product::factory()->create([
+            'user_id' => $this->user->id,
+            'paused' => false,
+            'paused_by_user' => false,
+        ]);
 
         $this->putJson("/api/products/{$product->id}", [
             'title' => $product->title,
@@ -383,7 +390,11 @@ class ProductApiTest extends TestCase
             'paused' => true,
         ])->assertSuccessful()->assertJsonPath('data.paused', true);
 
-        $this->assertDatabaseHas('products', ['id' => $product->id, 'paused' => true]);
+        $this->assertDatabaseHas('products', [
+            'id' => $product->id,
+            'paused' => true,
+            'paused_by_user' => true,
+        ]);
 
         $this->putJson("/api/products/{$product->id}", [
             'title' => $product->title,
@@ -391,7 +402,11 @@ class ProductApiTest extends TestCase
             'paused' => false,
         ])->assertSuccessful()->assertJsonPath('data.paused', false);
 
-        $this->assertDatabaseHas('products', ['id' => $product->id, 'paused' => false]);
+        $this->assertDatabaseHas('products', [
+            'id' => $product->id,
+            'paused' => false,
+            'paused_by_user' => false,
+        ]);
     }
 
     public function test_can_set_refresh_interval_via_api(): void

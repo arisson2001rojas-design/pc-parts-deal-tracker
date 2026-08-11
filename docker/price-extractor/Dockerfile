@@ -9,7 +9,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir --requirement requirements.txt \
     && useradd --create-home --uid 10001 extractor
 
-COPY app.py extractor.py test_extractor.py ./
+COPY app.py extractor.py test_app.py test_extractor.py ./
 
 USER extractor
 

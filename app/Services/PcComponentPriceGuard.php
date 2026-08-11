@@ -11,8 +11,13 @@ class PcComponentPriceGuard
     private const USD_RANGES = [
         'cpu' => ['min' => 5, 'max' => 5_000],
         'gpu' => ['min' => 10, 'max' => 10_000],
+        'motherboard' => ['min' => 20, 'max' => 3_000],
         'ram' => ['min' => 3, 'max' => 3_000],
         'ssd' => ['min' => 3, 'max' => 5_000],
+        'hdd' => ['min' => 5, 'max' => 5_000],
+        'sshd' => ['min' => 5, 'max' => 5_000],
+        'cpu_cooler' => ['min' => 5, 'max' => 1_500],
+        'pc_case' => ['min' => 10, 'max' => 2_000],
         'psu' => ['min' => 5, 'max' => 3_000],
     ];
 
@@ -77,12 +82,12 @@ class PcComponentPriceGuard
         $value = strtoupper(trim($rawPrice));
 
         return match (true) {
-            str_contains($value, '₡') || preg_match('/\bCRC\b/', $value) === 1 => 'CRC',
-            str_contains($value, 'US$') || preg_match('/\bUSD\b/', $value) === 1 => 'USD',
-            str_contains($value, 'C$') || preg_match('/\bCAD\b/', $value) === 1 => 'CAD',
-            str_contains($value, 'A$') || preg_match('/\bAUD\b/', $value) === 1 => 'AUD',
-            str_contains($value, '€') || preg_match('/\bEUR\b/', $value) === 1 => 'EUR',
-            str_contains($value, '£') || preg_match('/\bGBP\b/', $value) === 1 => 'GBP',
+            str_contains($value, '₡') || preg_match('/\\bCRC\\b/', $value) === 1 => 'CRC',
+            str_contains($value, 'US$') || preg_match('/\\bUSD\\b/', $value) === 1 => 'USD',
+            str_contains($value, 'C$') || preg_match('/\\bCAD\\b/', $value) === 1 => 'CAD',
+            str_contains($value, 'A$') || preg_match('/\\bAUD\\b/', $value) === 1 => 'AUD',
+            str_contains($value, '€') || preg_match('/\\bEUR\\b/', $value) === 1 => 'EUR',
+            str_contains($value, '£') || preg_match('/\\bGBP\\b/', $value) === 1 => 'GBP',
             default => null,
         };
     }

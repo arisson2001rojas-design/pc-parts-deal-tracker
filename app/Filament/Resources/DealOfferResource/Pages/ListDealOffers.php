@@ -41,26 +41,32 @@ class ListDealOffers extends ListRecords
     {
         return [
             'recent' => Tab::make('Más baratas · 7 días')
-                ->modifyQueryUsing(fn (Builder $query): Builder => $query
-                    ->verifiedPrice()
-                    ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
-                    ->where('fetched_at', '>=', now()->subDays(7))
-                ),
+                ->modifyQueryUsing(function (Builder $query): Builder {
+                    /** @var Builder<DealOffer> $query */
+                    return $query
+                        ->verifiedPrice()
+                        ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
+                        ->where('fetched_at', '>=', now()->subDays(7));
+                }),
             'today' => Tab::make('Verificadas hoy')
-                ->modifyQueryUsing(fn (Builder $query): Builder => $query
-                    ->verifiedPrice()
-                    ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
-                    ->whereDate('fetched_at', today())
-                ),
+                ->modifyQueryUsing(function (Builder $query): Builder {
+                    /** @var Builder<DealOffer> $query */
+                    return $query
+                        ->verifiedPrice()
+                        ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
+                        ->whereDate('fetched_at', today());
+                }),
             'target' => Tab::make('Bajo mi objetivo')
-                ->modifyQueryUsing(fn (Builder $query): Builder => $query
-                    ->verifiedPrice()
-                    ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
-                    ->whereHas('dealSearch', fn (Builder $search): Builder => $search
-                        ->whereNotNull('target_price')
-                        ->whereColumn('deal_offers.price', '<=', 'deal_searches.target_price')
-                    )
-                ),
+                ->modifyQueryUsing(function (Builder $query): Builder {
+                    /** @var Builder<DealOffer> $query */
+                    return $query
+                        ->verifiedPrice()
+                        ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
+                        ->whereHas('dealSearch', fn (Builder $search): Builder => $search
+                            ->whereNotNull('target_price')
+                            ->whereColumn('deal_offers.price', '<=', 'deal_searches.target_price')
+                        );
+                }),
             'all' => Tab::make('Todo el radar'),
         ];
     }

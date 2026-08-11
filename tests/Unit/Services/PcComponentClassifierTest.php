@@ -26,8 +26,17 @@ class PcComponentClassifierTest extends TestCase
     {
         yield 'cpu' => ['AMD Ryzen 5 5600 Desktop Processor', ComponentType::Cpu];
         yield 'gpu' => ['ASUS GeForce RTX 5070 12GB Graphics Card', ComponentType::Gpu];
+        yield 'motherboard' => ['MSI B550M PRO-VDH WiFi Motherboard for AMD Ryzen 5000', ComponentType::Motherboard];
+        yield 'motherboard spanish' => ['MSI B550M PRO-VDH WiFi Placa base AMD Ryzen 5000 AM4 DDR4', ComponentType::Motherboard];
         yield 'ram' => ['Corsair Vengeance 32GB DDR5 Desktop Memory', ComponentType::Ram];
         yield 'ssd' => ['Samsung 990 Pro 2TB NVMe SSD', ComponentType::Ssd];
+        yield 'ssd compatible with laptop' => ['KOOTION SSD NVMe M.2 PCIe 2280 de 256GB Compatible con laptop y PC de escritorio', ComponentType::Ssd];
+        yield 'laptop memory module' => ['Crucial 32GB DDR5 SODIMM Laptop Memory', ComponentType::Ram];
+        yield 'hdd' => ['Western Digital Blue 4TB 3.5 inch HDD Hard Drive', ComponentType::Hdd];
+        yield 'sshd' => ['Seagate FireCuda 2TB SSHD Solid State Hybrid Drive', ComponentType::Sshd];
+        yield 'air cooler' => ['Thermalright Peerless Assassin 120 SE CPU Air Cooler', ComponentType::CpuCooler];
+        yield 'aio cooler' => ['ARCTIC Liquid Freezer III 360 AIO Liquid CPU Cooler', ComponentType::CpuCooler];
+        yield 'pc case' => ['Corsair 4000D Airflow ATX Mid-Tower PC Case', ComponentType::PcCase];
         yield 'psu' => ['Corsair RM850x 850W Power Supply', ComponentType::Psu];
     }
 
@@ -35,9 +44,10 @@ class PcComponentClassifierTest extends TestCase
     public static function nonComponents(): iterable
     {
         yield 'complete pc' => ['Gaming PC Desktop Computer with Ryzen and Radeon'];
-        yield 'motherboard' => ['B650 Motherboard with DDR5 Memory'];
-        yield 'cooler' => ['CPU Air Cooler compatible with AMD Ryzen'];
         yield 'gpu holder' => ['PCIe graphics card support holder'];
         yield 'psu cable' => ['Modular PSU replacement cable'];
+        yield 'thermal paste' => ['Arctic MX-6 CPU thermal paste'];
+        yield 'case fan' => ['120mm RGB case fan replacement'];
+        yield 'drive enclosure' => ['USB-C NVMe SSD storage enclosure adapter'];
     }
 }

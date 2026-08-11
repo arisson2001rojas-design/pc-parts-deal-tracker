@@ -58,7 +58,7 @@ class BuildCoresCatalogImporter
             $entry = $archive->statIndex($index);
             $entryName = $entry['name'] ?? '';
 
-            if (! preg_match('#/open-db/(CPU|GPU|RAM|Storage|PSU)/[^/]+\.json$#', $entryName, $matches)) {
+            if (! preg_match('#/open-db/(CPU|GPU|RAM|Storage|PSU|Motherboard|PCCase|CPUCooler)/[^/]+\.json$#', $entryName, $matches)) {
                 continue;
             }
 
@@ -110,15 +110,19 @@ class BuildCoresCatalogImporter
             'GPU' => ComponentType::Gpu,
             'RAM' => ComponentType::Ram,
             'PSU' => ComponentType::Psu,
-            'Storage' => ComponentType::Ssd,
+            'Motherboard' => ComponentType::Motherboard,
+            'PCCase' => ComponentType::PcCase,
+            'CPUCooler' => ComponentType::CpuCooler,
+            'Storage' => match (strtoupper((string) ($data['storage_type'] ?? $data['type'] ?? ''))) {
+                'SSD' => ComponentType::Ssd,
+                'HDD' => ComponentType::Hdd,
+                'SSHD' => ComponentType::Sshd,
+                default => null,
+            },
             default => null,
         };
 
         if ($componentType === null) {
-            return null;
-        }
-
-        if ($category === 'Storage' && strtoupper((string) ($data['storage_type'] ?? $data['type'] ?? '')) !== 'SSD') {
             return null;
         }
 

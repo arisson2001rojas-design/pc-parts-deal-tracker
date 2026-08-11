@@ -7,8 +7,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
 
+/**
+ * @property ?string $price
+ * @property string $currency
+ * @property string $source
+ * @property ?Carbon $fetched_at
+ */
 class DealOffer extends Model
 {
     public const string USER_CONFIRMED_SOURCE = 'user_confirmed';
@@ -96,25 +103,36 @@ class DealOffer extends Model
 
     public function recordPriceSnapshot(): ?DealOfferPrice
     {
-        if (! $this->hasVerifiedPrice()) {
+        if (! $this->exists) {
             return null;
         }
 
-        $capturedAt = Carbon::parse($this->fetched_at ?? now());
-        $latest = $this->priceSnapshots()->latest('captured_at')->first();
-        if ($latest
-            && (float) $latest->price === (float) $this->price
-            && $latest->currency === $this->currency
-            && abs(Carbon::parse($latest->captured_at)->diffInSeconds($capturedAt, false)) < 300) {
-            return $latest;
-        }
+        return DB::transaction(function (): ?DealOfferPrice {
+            $offer = self::query()->lockForUpdate()->find($this->getKey());
+            if (! $offer instanceof self || ! $offer->hasVerifiedPrice()) {
+                return null;
+            }
 
-        return $this->priceSnapshots()->create([
-            'price' => $this->price,
-            'currency' => $this->currency,
-            'source' => $this->source,
-            'captured_at' => $capturedAt,
-        ]);
+            $capturedAt = Carbon::parse($offer->fetched_at ?? now());
+            $latest = $offer->priceSnapshots()
+                ->lockForUpdate()
+                ->latest('captured_at')
+                ->latest('id')
+                ->first();
+            if ($latest
+                && (float) $latest->price === (float) $offer->price
+                && $latest->currency === $offer->currency
+                && abs(Carbon::parse($latest->captured_at)->diffInSeconds($capturedAt, false)) < 300) {
+                return $latest;
+            }
+
+            return $offer->priceSnapshots()->create([
+                'price' => $offer->price,
+                'currency' => $offer->currency,
+                'source' => $offer->source,
+                'captured_at' => $capturedAt,
+            ]);
+        });
     }
 
     public function isOutOfStock(): bool

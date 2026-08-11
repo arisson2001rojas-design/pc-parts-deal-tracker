@@ -111,6 +111,7 @@ class PcPartResource extends Resource
                                 ->body("Select at most {$limit} components at a time so retailer checks stay controlled.")
                                 ->danger()
                                 ->send();
+
                             return;
                         }
 

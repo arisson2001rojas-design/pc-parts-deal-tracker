@@ -69,7 +69,29 @@ test("passive radar sends a supported product once and deduplicates it", async (
   assert.equal(fetchCalls, 1);
 });
 
+test("passive radar coalesces simultaneous discoveries for the same URL and price", async () => {
+  const before = fetchCalls;
+  const payload = {
+    page_url: "https://www.amazon.com/dp/B0D7654321",
+    title: "AMD Ryzen 7 Desktop Processor",
+    candidates: [{ price: 249.99, currency: "USD", source: "amazon_primary", confidence: 0.99 }]
+  };
+
+  const [first, second] = await Promise.all([
+    dispatch({ type: "pricebuddy:discover", payload }, "https://www.amazon.com/dp/B0D7654321"),
+    dispatch({ type: "pricebuddy:discover", payload }, "https://www.amazon.com/dp/B0D7654321")
+  ]);
+
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.equal(fetchCalls, before + 1);
+  assert.ok(
+    [first, second].some((response) => response.skipped === true && response.reason === "in_flight")
+  );
+});
+
 test("passive radar rejects a payload that does not match the sender page", async () => {
+  const before = fetchCalls;
   const response = await dispatch({
     type: "pricebuddy:discover",
     payload: {
@@ -80,5 +102,5 @@ test("passive radar rejects a payload that does not match the sender page", asyn
   }, "https://www.newegg.com/p/9SIC3U3KN44182");
 
   assert.equal(response.ok, false);
-  assert.equal(fetchCalls, 1);
+  assert.equal(fetchCalls, before);
 });

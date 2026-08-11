@@ -60,7 +60,6 @@ database/*.sqlite
 .agents
 .mcp.json
 .codex
-AGENTS.md
 CLAUDE.md
 .output.txt
 .ai/mcp
