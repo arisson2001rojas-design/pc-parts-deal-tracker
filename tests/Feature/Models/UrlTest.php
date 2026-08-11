@@ -66,6 +66,20 @@ class UrlTest extends TestCase
         $this->assertEquals($scrapeData['title'], $urlModel->product->title);
     }
 
+    public function test_create_from_url_strips_the_store_name_from_the_product_title()
+    {
+        $this->actingAs($this->user);
+
+        $this->store->update(['name' => 'JB Hi-Fi']);
+
+        $this->mockScrape(100, 'Sony WH-1000XM5 Wireless Headphones | JB Hi-Fi');
+
+        $urlModel = Url::createFromUrl(self::TEST_URL);
+
+        $this->assertInstanceOf(Url::class, $urlModel);
+        $this->assertEquals('Sony WH-1000XM5 Wireless Headphones', $urlModel->product->title);
+    }
+
     public function test_create_from_url_with_invalid_data()
     {
         $this->mockScrape('', '');
@@ -583,7 +597,9 @@ class UrlTest extends TestCase
             'store_id' => $this->store->getKey(),
         ]);
 
-        $historyPriceIds = $url->prices()->pluck('id')->all();
+        // reorder() drops the relation's created_at ordering: both rows share a timestamp,
+        // so only an explicit id order matches the id-ordered assertion below.
+        $historyPriceIds = $url->prices()->reorder('id')->pluck('id')->all();
         $this->assertCount(2, $historyPriceIds);
 
         $newStore = Store::factory()->createOne([

@@ -8,6 +8,13 @@
 
 `a906796`
 
+## Upstream integration
+
+- Integrated `origin/main` at `cec656bae58dc686f4bd23e18a4cb5ead769d6ea`.
+- Resolved `Url.php` by combining URL normalization and upstream stock handling with PriceBuddy image, guard, dedupe, and history behavior.
+- Resolved `routes/api.php` as an additive union of Client Config, Browser Capture, Browser Discovery, and existing API routes.
+- Preserved upstream soft-404 semantics through `PriceFetchResult` to URL persistence.
+
 ## Implemented
 
 - Radar 0.4.1 multi-retailer.
@@ -55,4 +62,4 @@
 
 ## Next exact action
 
-Git checkpoint and CI, then PriceFetch observability.
+Commit the integration, push the branch, and verify CI.

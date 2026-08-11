@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Dto\AvailabilityStrategyDto;
 use App\Dto\StandardStrategyDto;
 use App\Enums\ScraperService;
 use App\Enums\ScraperStrategyType;
@@ -30,6 +31,47 @@ class ScrapeUrl
      * For the title and image, limit the length.
      */
     public const int MAX_STR_LENGTH = 1000;
+
+    /**
+     * Splits a title on its last separator, eg the ":" in "Wireless Mouse: Amazon.com.au".
+     * A dash only counts when surrounded by whitespace so hyphenated words survive.
+     */
+    protected const string TITLE_SEPARATOR_PATTERN = '/^(?P<head>.*\S)(?:\s*[|:»·]\s*|\s+[-–—]\s+)(?P<tail>[^|:»·]+?)\s*$/u';
+
+    /**
+     * A segment that is nothing but a hostname, eg "Amazon.com.au" or "www.kogan.com".
+     */
+    protected const string TITLE_DOMAIN_PATTERN = '/^(?:www\.)?[\p{L}\p{N}][\p{L}\p{N}-]*(?:\.\p{L}{2,})+$/u';
+
+    /**
+     * How many trailing noise segments to strip from a title before giving up.
+     */
+    protected const int TITLE_MAX_NOISE_SEGMENTS = 5;
+
+    /**
+     * Shortest title we are willing to leave behind after stripping noise.
+     */
+    protected const int TITLE_MIN_LENGTH = 3;
+
+    /**
+     * Marks a scrape result as a soft 404. Read via self::resolveStockStatus() rather
+     * than the scraped `availability` value, which a store's match config can override.
+     */
+    public const string NOT_FOUND_KEY = 'not_found';
+
+    /**
+     * Titles that mean "this page does not exist". A bare "404" is deliberately NOT
+     * enough: plenty of real products carry it as a model number (eg "Roland SP-404",
+     * "Peugeot 404"), so it only counts alongside error wording or as the whole title.
+     */
+    protected const string NOT_FOUND_TITLE_PATTERN = '/\bnot\s+found\b|\bdoes\s+not\s+exist\b|\b(?:error|page)\s*[-–—:|]?\s*404\b|\b404\s*[-–—:|]?\s*(?:error|page|not)\b|^\s*404\s*$/i';
+
+    /**
+     * Body markers for a soft 404. Each is anchored to the attribute or key it belongs
+     * to so a stray "template-404" in bundled CSS or JSON cannot condemn a real product
+     * page.
+     */
+    protected const string NOT_FOUND_BODY_PATTERN = '/class=["\'][^"\']*\btemplate-404\b|data-page-type=["\']404["\']|"pageType"\s*:\s*"404"|rel=["\']canonical["\'][^>]*href=["\'][^"\']*\/404\/?["\']|href=["\'][^"\']*\/404\/?["\'][^>]*rel=["\']canonical["\']/i';
 
     protected WebScraperInterface $webScraper;
 
@@ -135,7 +177,7 @@ class ScrapeUrl
         }
 
         $availabilityStrategy = data_get($output, 'store.scrape_strategy.availability');
-        $isUnavailable = StockStatus::resolveAvailability($output['availability'] ?? null, $availabilityStrategy)->isUnavailable();
+        $isUnavailable = self::resolveStockStatus($output, $availabilityStrategy)->isUnavailable();
 
         foreach (['price', 'title'] as $required) {
             // Skip price requirement when product is unavailable.
@@ -259,6 +301,7 @@ class ScrapeUrl
 
             $output['body'] = $page->getBody();
             $output['errors'] = $scraper->getErrors();
+            $output = $this->applyNotFoundPageGuards($output);
         } catch (Exception $e) {
             $message = Str::lower($e->getMessage());
             $kind = Str::contains($message, ['timed out', 'timeout', 'curl error 28'])
@@ -278,9 +321,67 @@ class ScrapeUrl
         return $output;
     }
 
+    /**
+     * Soft 404s still return HTML with a title and often an unrelated dollar
+     * amount in banners (e.g. "Orders Over $899!"). Treat those pages as
+     * discontinued and drop any scraped price so shipping thresholds are never
+     * stored as product prices.
+     */
+    protected function applyNotFoundPageGuards(array $output): array
+    {
+        if (! $this->looksLikeNotFoundPage(
+            (string) ($output['title'] ?? ''),
+            (string) ($output['body'] ?? ''),
+        )) {
+            return $output;
+        }
+
+        $output['price'] = null;
+        $output['availability'] = 'https://schema.org/Discontinued';
+        $output[self::NOT_FOUND_KEY] = true;
+
+        return $output;
+    }
+
+    protected function looksLikeNotFoundPage(string $title, string $body): bool
+    {
+        if ($title !== '' && preg_match(self::NOT_FOUND_TITLE_PATTERN, $title) === 1) {
+            return true;
+        }
+
+        if ($body === '') {
+            return false;
+        }
+
+        return preg_match(self::NOT_FOUND_BODY_PATTERN, $body) === 1;
+    }
+
+    /**
+     * Resolve the stock status for a whole scrape result.
+     *
+     * A page flagged as a soft 404 is Discontinued whatever the store says. Reading the
+     * injected `availability` value alone is not enough: a store with a per-status match
+     * config re-interprets it, finds no rule for it and falls back to that config's
+     * default (usually InStock), silently undoing the guard.
+     *
+     * @param  array<string, mixed>|null  $scrapeResult
+     */
+    public static function resolveStockStatus(?array $scrapeResult, ?AvailabilityStrategyDto $availabilityStrategy): StockStatus
+    {
+        if (data_get($scrapeResult, self::NOT_FOUND_KEY)) {
+            return StockStatus::Discontinued;
+        }
+
+        return StockStatus::resolveAvailability(data_get($scrapeResult, 'availability'), $availabilityStrategy);
+    }
+
     public function getStore(): ?Store
     {
         $host = Uri::of($this->url)->host();
+
+        if (blank($host)) {
+            return null;
+        }
 
         return Store::query()->domainFilter($host)->oldest()->first();
     }
@@ -459,5 +560,52 @@ class ScrapeUrl
     public static function preSaveTruncate(?string $value): ?string
     {
         return Str::limit($value, self::MAX_STR_LENGTH);
+    }
+
+    /**
+     * Strip the site name noise stores append to product titles, eg the ": Mice: Amazon.com.au"
+     * in "Wireless Gaming Mouse (Black): Mice: Amazon.com.au". Only trailing segments that are
+     * a bare hostname or the store's own name are removed, so product detail is never lost.
+     */
+    public static function preSaveCleanTitle(?string $value, ?string $storeName = null): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $title = trim((string) preg_replace('/\s+/u', ' ', $value));
+        $storeName = $storeName === null ? null : mb_strtolower(trim($storeName));
+
+        for ($i = 0; $i < self::TITLE_MAX_NOISE_SEGMENTS; $i++) {
+            if (! preg_match(self::TITLE_SEPARATOR_PATTERN, $title, $matches)) {
+                break;
+            }
+
+            if (! self::isTitleNoiseSegment($matches['tail'], $storeName)) {
+                break;
+            }
+
+            if (mb_strlen($matches['head']) < self::TITLE_MIN_LENGTH) {
+                break;
+            }
+
+            $title = $matches['head'];
+        }
+
+        return $title;
+    }
+
+    /**
+     * Is this trailing title segment site name noise rather than product detail?
+     */
+    protected static function isTitleNoiseSegment(string $segment, ?string $storeName): bool
+    {
+        $segment = trim($segment);
+
+        if ($storeName !== null && $storeName !== '' && mb_strtolower($segment) === $storeName) {
+            return true;
+        }
+
+        return (bool) preg_match(self::TITLE_DOMAIN_PATTERN, $segment);
     }
 }

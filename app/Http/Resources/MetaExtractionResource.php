@@ -2,6 +2,10 @@
 
 namespace App\Http\Resources;
 
+use App\Dto\HealingOutcomeDto;
+use App\Models\Store;
+use App\Services\Helpers\CurrencyHelper;
+use App\Services\Helpers\LocaleHelper;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -18,10 +22,18 @@ class MetaExtractionResource extends JsonResource
     public function toArray(Request $request): array
     {
         $store = data_get($this->resource, 'store');
+        $store = $store instanceof Store ? $store : null;
+        $healing = data_get($this->resource, 'healing');
 
         return [
             'title' => data_get($this->resource, 'title'),
             'price' => data_get($this->resource, 'price'),
+            // Sit alongside `price` so a client never has to reach into `store` to format it;
+            // `store` is `{}` when none could be resolved, hence the app-level fallback here.
+            // `?:` also covers a store whose locale_settings hold an explicit null/empty value,
+            // which data_get() returns as-is rather than falling back to its default.
+            'currency' => $store?->currency ?: CurrencyHelper::getCurrency(),
+            'locale' => LocaleHelper::toBcp47($store?->locale ?: CurrencyHelper::getLocale()),
             'image' => data_get($this->resource, 'image'),
             'description' => data_get($this->resource, 'description'),
             'availability' => data_get($this->resource, 'availability'),
@@ -29,6 +41,9 @@ class MetaExtractionResource extends JsonResource
             // Empty object (serialises to `{}`, not `null`) keeps the `store` field shape stable
             // for API clients even when no store could be resolved or detected.
             'store' => $store ? new StoreResource($store) : (object) [],
+            // Always present, so a client can explain a thin result ("AI detection timed out")
+            // rather than silently showing empty fields.
+            'healing' => ($healing instanceof HealingOutcomeDto ? $healing : new HealingOutcomeDto)->toArray(),
         ];
     }
 }

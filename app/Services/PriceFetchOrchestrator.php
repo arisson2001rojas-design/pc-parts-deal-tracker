@@ -94,6 +94,7 @@ class PriceFetchOrchestrator
         $body = is_string($payload['body'] ?? null) ? $payload['body'] : '';
         $rawErrors = is_array($payload['errors'] ?? null) ? array_values($payload['errors']) : [];
         $fetchError = is_array($payload['fetch_error'] ?? null) ? $payload['fetch_error'] : null;
+        $notFound = (bool) ($payload[ScrapeUrl::NOT_FOUND_KEY] ?? false);
 
         if ($fetchError !== null) {
             $status = $this->statusForErrorKind((string) ($fetchError['kind'] ?? 'invalid_response'));
@@ -109,6 +110,7 @@ class PriceFetchOrchestrator
                 $rawErrors,
                 $startedAt,
                 (bool) ($fetchError['retryable'] ?? false),
+                $notFound,
             );
         }
 
@@ -125,6 +127,7 @@ class PriceFetchOrchestrator
                 $rawErrors,
                 $startedAt,
                 true,
+                $notFound,
             );
         }
         if ($rawErrors !== []) {
@@ -143,6 +146,7 @@ class PriceFetchOrchestrator
                 $rawErrors,
                 $startedAt,
                 $status === PriceFetchStatus::Timeout,
+                $notFound,
             );
         }
 
@@ -160,6 +164,7 @@ class PriceFetchOrchestrator
                 $rawErrors,
                 $startedAt,
                 false,
+                $notFound,
             );
         }
 
@@ -180,6 +185,7 @@ class PriceFetchOrchestrator
             observedAt: new DateTimeImmutable,
             latencyMs: $this->latencyMs($startedAt),
             body: $body,
+            notFound: $notFound,
         );
     }
 
@@ -220,6 +226,7 @@ class PriceFetchOrchestrator
         array $rawErrors,
         int $startedAt,
         bool $retryable,
+        bool $notFound = false,
     ): PriceFetchResult {
         return new PriceFetchResult(
             status: $status,
@@ -234,6 +241,7 @@ class PriceFetchOrchestrator
             error: ['kind' => $status->value, 'retryable' => $retryable],
             body: $body,
             rawErrors: $rawErrors,
+            notFound: $notFound,
         );
     }
 
@@ -254,6 +262,7 @@ class PriceFetchOrchestrator
             seller: $fallback->seller ?? $primary->seller,
             body: $fallback->body,
             rawErrors: $fallback->rawErrors,
+            notFound: $fallback->notFound,
         );
     }
 

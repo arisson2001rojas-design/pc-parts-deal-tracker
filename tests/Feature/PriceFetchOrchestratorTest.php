@@ -116,6 +116,64 @@ class PriceFetchOrchestratorTest extends TestCase
         );
     }
 
+    public function test_soft_404_marker_survives_orchestrator_and_url_persistence(): void
+    {
+        $store = $this->store('api');
+        $store->update([
+            'scrape_strategy' => [
+                'title' => ['type' => 'selector', 'value' => 'title'],
+                'availability' => [
+                    'type' => 'selector',
+                    'value' => '.stock',
+                    'match' => [
+                        'out_of_stock' => ['type' => 'match', 'value' => 'Sold out'],
+                        'default' => 'in_stock',
+                    ],
+                ],
+            ],
+        ]);
+        Http::fake([
+            'price-extractor.test/extract' => Http::response([
+                'error' => 'no reliable product price found',
+                'data' => [
+                    'page_url' => self::PRODUCT_URL,
+                    'title' => null,
+                    'image_url' => null,
+                    'availability' => 'unknown',
+                    'candidates' => [],
+                ],
+            ], 422),
+        ]);
+
+        $scraper = Mockery::mock(ScrapeUrl::class, [self::PRODUCT_URL])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $scraper->shouldReceive('getStore')->andReturn($store);
+        $scraper->shouldReceive('scrapeUrl')->andReturn([
+            'store' => $store,
+            'title' => 'Page not found',
+            'price' => null,
+            'availability' => 'https://schema.org/Discontinued',
+            ScrapeUrl::NOT_FOUND_KEY => true,
+            'body' => '<html><title>Page not found</title></html>',
+            'errors' => [],
+        ]);
+
+        $scrapeResult = $scraper->scrape();
+        $this->assertTrue($scrapeResult[ScrapeUrl::NOT_FOUND_KEY] ?? false);
+
+        $url = Url::factory()->create([
+            'url' => self::PRODUCT_URL,
+            'store_id' => $store->getKey(),
+        ]);
+        $existingPrice = $url->updatePrice('199.99');
+        $returnedPrice = $url->updatePrice(null, $scrapeResult);
+
+        $this->assertSame($existingPrice?->getKey(), $returnedPrice?->getKey());
+        $this->assertDatabaseCount('prices', 1);
+        $this->assertSame(StockStatus::Discontinued, $url->fresh()->getAvailabilityStatus());
+    }
+
     public function test_http_no_price_is_distinguished_and_uses_existing_seleniumbase_fallback(): void
     {
         $store = $this->store('api');

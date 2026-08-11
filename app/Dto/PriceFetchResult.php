@@ -35,6 +35,7 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
         public ?string $seller = null,
         public string $body = '',
         public array $rawErrors = [],
+        public bool $notFound = false,
     ) {}
 
     /**
@@ -48,7 +49,7 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
             ? ($this->candidates[0] ?? null)
             : null;
 
-        return [
+        $payload = [
             'store' => $store,
             'status' => $this->status->value,
             'source' => $this->source,
@@ -65,6 +66,12 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
             'body' => $this->body,
             'errors' => $this->rawErrors,
         ];
+
+        if ($this->notFound) {
+            $payload['not_found'] = true;
+        }
+
+        return $payload;
     }
 
     /**
@@ -134,6 +141,7 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
             'observedAt' => $this->observedAt->format(DATE_ATOM),
             'latencyMs' => $this->latencyMs,
             'error' => $this->error,
+            'notFound' => $this->notFound,
         ];
     }
 

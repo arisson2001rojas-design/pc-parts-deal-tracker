@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\ApiAbility;
+use App\Http\Controllers\Api\ClientConfigController;
 use App\Http\Controllers\Api\MetaExtractionController;
 use App\Http\Controllers\BrowserDiscoveryController;
 use App\Http\Controllers\BrowserPriceCaptureController;
@@ -14,6 +15,10 @@ Route::get('/user', function (Request $request) {
 Route::post('/meta-extraction', MetaExtractionController::class)
     ->middleware(['auth:sanctum', 'ability:'.ApiAbility::MetaExtractionExtract->value])
     ->name('api.meta-extraction');
+
+Route::get('/client-config', ClientConfigController::class)
+    ->middleware(['auth:sanctum', 'ability:'.ApiAbility::ClientConfigRead->value])
+    ->name('api.client-config');
 
 Route::post('/browser-capture/{offer}', BrowserPriceCaptureController::class)
     ->middleware(['signed:relative', 'throttle:30,1'])
