@@ -60,4 +60,32 @@ class StockStatusSchemaOrgTest extends TestCase
             StockStatus::resolveAvailability('Sold out', AvailabilityStrategyDto::fromArray($strategy)),
         );
     }
+
+    public function test_resolve_availability_preserves_canonical_values_before_raw_matching(): void
+    {
+        $conflictingStrategy = AvailabilityStrategyDto::fromArray([
+            'type' => 'selector',
+            'match' => [
+                'out_of_stock' => ['type' => 'match', 'value' => 'in_stock'],
+                'default' => 'in_stock',
+            ],
+        ]);
+
+        $this->assertSame(StockStatus::InStock, StockStatus::resolveAvailability('in_stock', $conflictingStrategy));
+        $this->assertSame(StockStatus::OutOfStock, StockStatus::resolveAvailability('out_of_stock', null));
+    }
+
+    public function test_resolve_availability_still_interprets_raw_store_values(): void
+    {
+        $strategy = AvailabilityStrategyDto::fromArray([
+            'type' => 'selector',
+            'match' => [
+                'out_of_stock' => ['type' => 'regex', 'value' => 'sold\\s+out'],
+                'default' => 'in_stock',
+            ],
+        ]);
+
+        $this->assertSame(StockStatus::OutOfStock, StockStatus::resolveAvailability('Item SOLD OUT today', $strategy));
+        $this->assertSame(StockStatus::InStock, StockStatus::resolveAvailability('Available now', $strategy));
+    }
 }

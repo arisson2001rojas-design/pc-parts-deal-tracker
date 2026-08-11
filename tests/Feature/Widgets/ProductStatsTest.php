@@ -263,6 +263,19 @@ class ProductStatsTest extends TestCase
         $this->assertEquals($productWithPrice->id, $group['products']->first()->id);
     }
 
+    public function test_featured_products_can_be_excluded_from_the_regular_groups(): void
+    {
+        $product = Product::factory()->create([
+            'user_id' => $this->user->id,
+            'favourite' => true,
+            'status' => 'p',
+            'price_cache' => [['price' => 100.00, 'date' => now()->toDateString()]],
+        ]);
+
+        $this->assertCount(1, ProductStats::getProductsGrouped());
+        $this->assertSame([], ProductStats::getProductsGrouped([$product->id]));
+    }
+
     public function test_tags_with_same_weight_are_ordered_consistently(): void
     {
         // Create tags with the same weight

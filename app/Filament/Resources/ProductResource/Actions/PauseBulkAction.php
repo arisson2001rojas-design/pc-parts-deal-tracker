@@ -2,9 +2,11 @@
 
 namespace App\Filament\Resources\ProductResource\Actions;
 
+use App\Models\Product;
 use Filament\Actions\Concerns\CanCustomizeProcess;
 use Filament\Tables\Actions\BulkAction;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 
 class PauseBulkAction extends BulkAction
 {
@@ -29,7 +31,11 @@ class PauseBulkAction extends BulkAction
 
         $this->action(function (): void {
             $this->process(static function (Collection $records) {
-                $records->each->update(['paused' => true]);
+                $records->each(static function (Model $record): void {
+                    if ($record instanceof Product) {
+                        $record->setUserPaused(true)->save();
+                    }
+                });
             });
 
             $this->success();

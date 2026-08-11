@@ -151,27 +151,29 @@ class ScrapeUrl
 
     public function scrape(array $options = []): array
     {
+        if (! self::allowsAutomatedAccess($this->url)) {
+            return ['blocked' => true];
+        }
+
         $attempt = 0;
-        $output = [];
+        $store = data_get($options, 'store') ?? $this->getStore();
 
-        while ($attempt < $this->maxAttempts) {
-            $attempt++;
-
-            // Don't use cache if previous attempt failed.
-            if ($attempt > 1) {
-                $options['use_cache'] = false;
-            }
-
-            $output = $this->scrapeUrl($options);
-
-            if ($output === false) {
-                $attempt = $this->maxAttempts;
-                $output = [];
-            }
-
-            if (! empty($output['title'])) {
-                break;
-            }
+        if ($store instanceof Store) {
+            $result = resolve(PriceFetchOrchestrator::class)->fetch(
+                $this->url,
+                $store,
+                function () use ($options, $store, &$attempt): array {
+                    return $this->scrapeWithConfiguredEngine(
+                        [...$options, 'store' => $store],
+                        $attempt,
+                    );
+                },
+            );
+            $output = $result->toScrapeArray($store);
+            $output['title'] = self::preSaveTruncate($output['title']);
+            $output['image'] = self::preSaveMaxLength($output['image']);
+        } else {
+            $output = $this->scrapeWithConfiguredEngine($options, $attempt);
         }
 
         $availabilityStrategy = data_get($output, 'store.scrape_strategy.availability');
@@ -197,6 +199,54 @@ class ScrapeUrl
         }
 
         return $output;
+    }
+
+    /**
+     * Preserve the existing retry/cache behavior for whichever scraper engine the
+     * Store already configures. The orchestrator decides whether this fallback runs.
+     *
+     * @param  array<string, mixed>  $options
+     * @return array<string, mixed>
+     */
+    private function scrapeWithConfiguredEngine(array $options, int &$attempt): array
+    {
+        $output = [];
+        while ($attempt < $this->maxAttempts) {
+            $attempt++;
+
+            // Don't use cache if previous attempt failed.
+            if ($attempt > 1) {
+                $options['use_cache'] = false;
+            }
+
+            $output = $this->scrapeUrl($options);
+            if ($output === false) {
+                $attempt = $this->maxAttempts;
+
+                return [];
+            }
+
+            if (! empty($output['title'])) {
+                break;
+            }
+        }
+
+        return $output;
+    }
+
+    public static function allowsAutomatedAccess(?string $url): bool
+    {
+        $host = Str::lower((string) parse_url((string) $url, PHP_URL_HOST));
+
+        if ($host === '') {
+            return true;
+        }
+
+        return collect((array) config('price_buddy.automated_access_disabled_domains', []))
+            ->filter(fn (mixed $domain): bool => is_string($domain) && $domain !== '')
+            ->doesntContain(fn (string $domain): bool => $host === Str::lower($domain)
+                || str_ends_with($host, '.'.Str::lower($domain))
+            );
     }
 
     protected function scrapeUrl(array $options = []): array|false
@@ -230,6 +280,7 @@ class ScrapeUrl
             $page = $scraper->get();
 
             if ($errors = $scraper->getErrors()) {
+                $output['errors'] = $errors;
                 $this->errorLog('Error scraping URL', [
                     'store_id' => $store->getKey(),
                     'errors' => $errors,
@@ -252,6 +303,16 @@ class ScrapeUrl
             $output['errors'] = $scraper->getErrors();
             $output = $this->applyNotFoundPageGuards($output);
         } catch (Exception $e) {
+            $message = Str::lower($e->getMessage());
+            $kind = Str::contains($message, ['timed out', 'timeout', 'curl error 28'])
+                ? 'timeout'
+                : (Str::contains($message, ['connection', 'network', 'resolve host'])
+                    ? 'network_error'
+                    : 'invalid_response');
+            $output['fetch_error'] = [
+                'kind' => $kind,
+                'retryable' => in_array($kind, ['timeout', 'network_error'], true),
+            ];
             $this->errorLog('Error scraping URL', [
                 'error' => $e->getMessage(),
             ]);

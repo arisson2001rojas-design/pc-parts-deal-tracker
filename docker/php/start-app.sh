@@ -1,13 +1,12 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # Setup the environment file if it doesn't exist
 if [ ! -f ".env" ] ||  ! grep -q . ".env" ; then
     cp .env.example .env
     php artisan key:generate --force
 fi
-
-# Debugging
-printenv
 
 # Ensure storage exists
 mkdir -p storage/framework/sessions \
@@ -27,9 +26,6 @@ while ! nc -z ${DB_HOST:-database} ${DB_PORT:-3306}; do
   sleep 1
 done
 
-# Optimize clear once DB ready
-php artisan optimize:clear
-
 # Run migrations and seed the database if required
 php artisan buddy:init-db
 
@@ -43,9 +39,14 @@ php artisan event:cache
 php artisan buddy:regenerate-price-cache
 
 # Install xdebug if running in Lando environment
-if [ ! -z "${LANDO_INFO}" ]; then
+if [ -n "${LANDO_INFO:-}" ]; then
     pecl install xdebug && docker-php-ext-enable xdebug
 fi
+
+# Docker can preserve Apache's PID file when a container is stopped. If that
+# PID is reused by cron on the next boot, Apache mistakes cron for itself and
+# exits without serving HTTP.
+rm -f /var/run/apache2/apache2.pid /run/apache2/apache2.pid
 
 # Start supervisor that handles cron and apache
 supervisord -c /etc/supervisor/conf.d/supervisord.conf

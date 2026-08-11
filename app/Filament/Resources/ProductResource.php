@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\ComponentType;
 use App\Enums\Icons;
 use App\Enums\Statuses;
 use App\Filament\Resources\ProductResource\Actions\FetchBulkAction;
@@ -99,6 +100,13 @@ class ProductResource extends Resource
                 ->nullable();
         }
 
+        $components[] = Select::make('component_type')
+            ->label('Component type')
+            ->options(ComponentType::class)
+            ->searchable()
+            ->native(false)
+            ->hintIcon(Icons::Help->value, 'Used to filter PC parts and calculate complete build totals');
+
         $components[] = self::createTagsSelect();
 
         $components[] = TextInput::make('price_factor')
@@ -174,6 +182,13 @@ class ProductResource extends Resource
                 TextInput::make('image')
                     ->label('Image Url')
                     ->hintIcon(Icons::Help->value, 'The Image URL of the product'),
+
+                Select::make('component_type')
+                    ->label('Component type')
+                    ->options(ComponentType::class)
+                    ->searchable()
+                    ->native(false)
+                    ->hintIcon(Icons::Help->value, 'Assign CPU, GPU, RAM, SSD, or power supply to use this product in PC builds'),
 
                 TextInput::make('unit_of_measure')
                     ->label('Sold as')
@@ -293,7 +308,7 @@ class ProductResource extends Resource
                             ->height(60)
                             ->extraImgAttributes([
                                 'class' => 'rounded-md p-1 bg-white mr-2',
-                                'onerror' => "this.onerror=null;this.src='/images/placeholder.png';",
+                                'onerror' => "this.onerror=null;this.src='/images/pc-part-placeholder.svg';",
                             ])
                             ->label('Image')
                             ->url(fn ($record): string => $record->action_urls['view'])
@@ -307,6 +322,20 @@ class ProductResource extends Resource
                                 ->weight(FontWeight::Bold)
                                 ->extraAttributes(['class' => 'pr-4 min-w-40'])
                                 ->url(fn (Product $record): string => $record->action_urls['view']),
+
+                            TextColumn::make('component_type')
+                                ->label('Component')
+                                ->badge()
+                                ->formatStateUsing(function ($state): string {
+                                    $type = $state instanceof ComponentType ? $state : ComponentType::tryFrom((string) $state);
+
+                                    return $type?->getLabel() ?? '';
+                                })
+                                ->color(function ($state): string {
+                                    $type = $state instanceof ComponentType ? $state : ComponentType::tryFrom((string) $state);
+
+                                    return $type?->getColor() ?? 'gray';
+                                }),
 
                             Tables\Columns\ViewColumn::make('badges')
                                 ->view('components.product-badges')
@@ -330,6 +359,10 @@ class ProductResource extends Resource
                 SelectFilter::make('status')
                     ->options(Statuses::class)
                     ->label('Status')
+                    ->native(false),
+                SelectFilter::make('component_type')
+                    ->label('Component type')
+                    ->options(ComponentType::class)
                     ->native(false),
                 SelectFilter::make('lowest_in_period')
                     ->label('Current price is lowest in')

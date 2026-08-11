@@ -3,6 +3,7 @@
 namespace Tests\Feature\Models;
 
 use App\Dto\AiExtractionResultDto;
+use App\Enums\ComponentType;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Store;
@@ -77,6 +78,25 @@ class UrlUpdatePriceTest extends TestCase
         $url = Url::factory()->for(Product::factory())->create();
 
         $price = $url->updatePrice(null, ['price' => null, 'body' => '<html>9.99</html>', 'availability' => null]);
+
+        $this->assertNull($price);
+        $this->assertDatabaseCount('prices', 0);
+    }
+
+    public function test_implausible_foreign_currency_pc_price_is_not_recorded(): void
+    {
+        $store = Store::factory()->create([
+            'settings' => [
+                'locale_settings' => ['locale' => 'en', 'currency' => 'USD'],
+            ],
+        ]);
+        $product = Product::factory()->create(['component_type' => ComponentType::Cpu]);
+        $url = Url::factory()->for($product)->for($store)->create();
+
+        $price = $url->updatePrice('₡149,361.46', [
+            'price' => '₡149,361.46',
+            'availability' => null,
+        ]);
 
         $this->assertNull($price);
         $this->assertDatabaseCount('prices', 0);

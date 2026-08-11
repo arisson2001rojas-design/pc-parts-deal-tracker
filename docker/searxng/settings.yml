@@ -1,0 +1,46 @@
+use_default_settings: true
+
+general:
+  instance_name: PC Deal Hunter Search
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: local-pc-deal-hunter-only-not-public
+  bind_address: 0.0.0.0
+  port: 8080
+  limiter: false
+  image_proxy: false
+
+ui:
+  static_use_hash: true
+
+outgoing:
+  request_timeout: 12.0
+  max_request_timeout: 20.0
+
+engines:
+  - name: bing
+    disabled: false
+  - name: brave
+    disabled: true
+  - name: duckduckgo
+    disabled: true
+  - name: google cse
+    disabled: true
+  - name: mojeek
+    disabled: true
+  - name: mwmbl
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: startpage
+    disabled: true
+  - name: yahoo
+    disabled: true
+  - name: yep
+    disabled: true

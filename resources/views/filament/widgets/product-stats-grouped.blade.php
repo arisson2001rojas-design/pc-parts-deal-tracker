@@ -15,9 +15,9 @@
         @endif
     @endforeach
 
-    @if (empty($groups))
+    @if (empty($groups) && ! $hasFeaturedProducts)
         @livewire(NoProductsFound::class)
-    @else
+    @elseif (! empty($groups))
         <div
             x-sortable
             x-on:end.stop="$wire.reorderCategories($event.target.sortable.toArray())"

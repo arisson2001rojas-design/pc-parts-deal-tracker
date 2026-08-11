@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ProductResource\Api\Requests;
 
+use App\Enums\ComponentType;
 use App\Enums\Statuses;
 use App\Filament\Resources\ProductResource;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -31,6 +32,7 @@ class CreateProductRequest extends FormRequest
             'product_id' => 'nullable|exists:products,id',
             'image' => 'nullable|url',
             'status' => 'sometimes|in:'.implode(',', Statuses::values()),
+            'component_type' => 'sometimes|nullable|in:'.implode(',', ComponentType::values()),
             'weight' => 'sometimes|numeric',
             'notify_price' => 'sometimes|numeric',
             'notify_percent' => 'sometimes|numeric',

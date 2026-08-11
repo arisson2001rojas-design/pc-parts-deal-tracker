@@ -4,6 +4,8 @@ namespace App\Services\Helpers;
 
 use App\Console\Commands\FetchAll;
 use App\Console\Commands\FetchDue;
+use App\Console\Commands\RefreshDealSearches;
+use App\Console\Commands\SyncPcPartsCatalog;
 use App\Models\UrlResearch;
 use Illuminate\Console\Scheduling\Schedule;
 use Lorisleiva\CronTranslator\CronTranslator;
@@ -47,6 +49,16 @@ class ScheduleHelper
             // lock so a crashed/unclean run can't block the next minute for the
             // 24h default.
             ->withoutOverlapping(5);
+        // Keep component names and retailer identifiers current without
+        // coupling catalog updates to the much more frequent price checks.
+        $schedule->command(SyncPcPartsCatalog::COMMAND)
+            ->weeklyOn(0, '03:00')
+            ->withoutOverlapping(60);
+        // Refresh saved deal hunts while the local app is running. Discovery
+        // uses a search index and never attempts automated checkout.
+        $schedule->command(RefreshDealSearches::COMMAND, ['--stale'])
+            ->hourly()
+            ->withoutOverlapping(30);
         // Prune old log messages
         $schedule->command('model:prune', ['--model' => [LogMessage::class]])->daily();
         // Prune search research results.

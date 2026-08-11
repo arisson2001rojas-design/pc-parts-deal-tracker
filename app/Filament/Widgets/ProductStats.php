@@ -19,12 +19,14 @@ class ProductStats extends Widget
 
     protected static string $view = 'filament.widgets.product-stats-grouped';
 
-    public static function getProductsGrouped(): array
+    /** @param array<int, int> $excludedProductIds */
+    public static function getProductsGrouped(array $excludedProductIds = []): array
     {
         return Product::query()
             ->currentUser()
             ->favourite()
             ->published()
+            ->when($excludedProductIds !== [], fn ($query) => $query->whereNotIn('id', $excludedProductIds))
             ->with('tags')
             ->orderBy('weight')
             ->orderByDesc('created_at')
@@ -67,18 +69,40 @@ class ProductStats extends Widget
         $user = auth()->user();
         $layout = new DashboardLayoutService($user);
         $sectionsService = new DashboardSections($user);
+        $sections = $layout->sections();
+        $visibleSectionKeys = collect($sections)
+            ->filter(fn (array $section): bool => $section['visible'])
+            ->pluck('key');
 
-        $groups = $this->orderGroups(self::getProductsGrouped(), $layout);
+        $sectionData = [
+            'stat_bar' => $sectionsService->statBar(),
+            'buy_now' => $sectionsService->buyNow(),
+            'recently_dropped' => $sectionsService->recentlyDropped(),
+            'needs_attention' => $sectionsService->needsAttention(),
+        ];
+        $featuredIds = collect();
+
+        foreach (['buy_now', 'recently_dropped', 'needs_attention'] as $key) {
+            if (! $visibleSectionKeys->contains($key)) {
+                continue;
+            }
+
+            $sectionData[$key] = $sectionData[$key]
+                ->reject(fn (Product $product): bool => $featuredIds->contains($product->id))
+                ->values();
+            $featuredIds->push(...$sectionData[$key]->pluck('id')->map(
+                fn ($id): int => (int) $id
+            ));
+        }
+
+        $featuredProductIds = $featuredIds->unique()->values()->all();
+        $groups = $this->orderGroups(self::getProductsGrouped($featuredProductIds), $layout);
 
         return [
             'groups' => $groups,
-            'sections' => $layout->sections(),
-            'sectionData' => [
-                'stat_bar' => $sectionsService->statBar(),
-                'buy_now' => $sectionsService->buyNow(),
-                'recently_dropped' => $sectionsService->recentlyDropped(),
-                'needs_attention' => $sectionsService->needsAttention(),
-            ],
+            'sections' => $sections,
+            'sectionData' => $sectionData,
+            'hasFeaturedProducts' => $featuredProductIds !== [],
         ];
     }
 

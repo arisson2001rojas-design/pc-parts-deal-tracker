@@ -1,5 +1,9 @@
 .env
+.env.local
+.local-login.txt
+.git
 storage
+vendor
 public/build
 public/hot
 node_modules

@@ -73,6 +73,16 @@ class User extends Authenticatable implements FilamentUser
         return $this->hasMany(Product::class);
     }
 
+    public function pcBuilds(): HasMany
+    {
+        return $this->hasMany(PcBuild::class);
+    }
+
+    public function dealSearches(): HasMany
+    {
+        return $this->hasMany(DealSearch::class);
+    }
+
     /**
      * Get notification setting(s) for a specific method.
      */

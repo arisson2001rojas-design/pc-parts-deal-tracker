@@ -2,6 +2,8 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Resources\DealOfferResource;
+use App\Filament\Resources\DealOfferResource\Widgets\DealHunterStats;
 use App\Filament\Resources\ProductResource\Actions\CreateAction;
 use App\Filament\Widgets\ProductStats;
 use App\Services\Dashboard\DashboardLayoutService;
@@ -24,10 +26,10 @@ class HomeDashboard extends Page
      * @var array<string, string>
      */
     private const SECTION_LABELS = [
-        'stat_bar' => 'Summary stats',
-        'buy_now' => "What's good to buy now",
-        'recently_dropped' => 'Recently dropped',
-        'needs_attention' => 'Needs attention',
+        'stat_bar' => 'Resumen de precios',
+        'buy_now' => 'Qué conviene comprar ahora',
+        'recently_dropped' => 'Bajaron recientemente',
+        'needs_attention' => 'Necesitan atención',
     ];
 
     protected static ?int $navigationSort = -2;
@@ -39,9 +41,7 @@ class HomeDashboard extends Page
 
     public static function getNavigationLabel(): string
     {
-        return static::$navigationLabel ??
-            static::$title ??
-            __('filament-panels::pages/dashboard.title');
+        return 'Inicio';
     }
 
     public static function getNavigationIcon(): string|Htmlable|null
@@ -62,6 +62,7 @@ class HomeDashboard extends Page
     public function getWidgets(): array
     {
         return [
+            DealHunterStats::class,
             ProductStats::class,
         ];
     }
@@ -84,13 +85,17 @@ class HomeDashboard extends Page
 
     public function getTitle(): string|Htmlable
     {
-        return static::$title ?? __('filament-panels::pages/dashboard.title');
+        return 'Centro de caza PC Gaming';
     }
 
     public function getHeaderActions(): array
     {
         return [
-            CreateAction::make(),
+            Action::make('deal_hunter')
+                ->label('Abrir radar de ofertas')
+                ->icon('heroicon-o-fire')
+                ->url(DealOfferResource::getUrl('index')),
+            CreateAction::make()->label('Añadir producto'),
             $this->customizeAction(),
         ];
     }
@@ -98,11 +103,11 @@ class HomeDashboard extends Page
     protected function customizeAction(): Action
     {
         return Action::make('customize')
-            ->label(__('Customize'))
+            ->label('Personalizar')
             ->icon('heroicon-o-adjustments-horizontal')
             ->color('gray')
-            ->modalHeading(__('Customize dashboard'))
-            ->modalSubmitActionLabel(__('Save'))
+            ->modalHeading('Personalizar inicio')
+            ->modalSubmitActionLabel('Guardar')
             ->fillForm(fn (): array => $this->currentSectionVisibility())
             ->form(
                 array_map(

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PriceBuddy Radar</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    body { width: 340px; margin: 0; color: #ecfeff; background: #070b12; }
+    main { padding: 18px; }
+    header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+    .badge { padding: 5px 9px; border: 1px solid #0f766e; border-radius: 999px; color: #5eead4; background: #0f2f2d; font-size: 11px; font-weight: 800; }
+    .panel { padding: 14px; border: 1px solid #253244; border-radius: 14px; background: #101722; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .row + .row { margin-top: 14px; padding-top: 14px; border-top: 1px solid #253244; }
+    strong { display: block; font-size: 13px; }
+    small { display: block; margin-top: 3px; color: #94a3b8; line-height: 1.35; }
+    input { width: 38px; height: 21px; accent-color: #14b8a6; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+    .stat { padding: 12px; border-radius: 12px; background: #111c29; }
+    .number { color: #5eead4; font-size: 22px; font-weight: 800; }
+    #last { min-height: 32px; }
+    button { width: 100%; padding: 11px 14px; border: 0; border-radius: 11px; color: #03201d; background: #2dd4bf; font-weight: 800; cursor: pointer; }
+    footer { margin-top: 12px; color: #64748b; font-size: 10px; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>🎯 PriceBuddy Radar</h1>
+      <span class="badge" id="status">ACTIVO</span>
+    </header>
+    <section class="panel">
+      <label class="row">
+        <span><strong>Aprender mientras navego</strong><small>Guarda componentes y precios vistos.</small></span>
+        <input id="radarEnabled" type="checkbox">
+      </label>
+      <label class="row">
+        <span><strong>Aviso de captura</strong><small>Muestra una confirmación discreta.</small></span>
+        <input id="radarNotifications" type="checkbox">
+      </label>
+    </section>
+    <section class="stats">
+      <div class="stat"><div class="number" id="count">0</div><small>capturas guardadas</small></div>
+      <div class="stat"><strong>Último hallazgo</strong><small id="last">Todavía ninguno</small></div>
+    </section>
+    <button id="openPriceBuddy" type="button">Abrir Deal Hunter</button>
+    <footer>Procesa CPU, GPU, placas madre, RAM, SSD/HDD/SSHD, coolers de CPU, cases y PSU en tiendas permitidas. No lee ni envía cookies.</footer>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

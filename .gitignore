@@ -1,5 +1,7 @@
 # Env
 .env
+.env.local
+.local-login.txt
 .env.backup
 .env.production
 
@@ -28,6 +30,8 @@ auth.json
 /.phpunit.cache
 .phpunit.result.cache
 .phpactor.json
+__pycache__/
+*.py[cod]
 
 # DB Dumps
 *.sql
@@ -56,7 +60,6 @@ database/*.sqlite
 .agents
 .mcp.json
 .codex
-AGENTS.md
 CLAUDE.md
 .output.txt
 .ai/mcp

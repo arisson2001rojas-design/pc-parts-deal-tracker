@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\PcBuild;
 use App\Models\Product;
 use App\Models\Url;
 use App\Notifications\ScrapeFailNotification;
@@ -44,6 +45,12 @@ class UpdateProductPricesJob implements ShouldQueue
         if (! $successful) {
             $this->handleFailures($failedUrls);
         }
+
+        PcBuild::query()
+            ->whereHas('items', fn ($query) => $query->where('product_id', $this->product->getKey()))
+            ->with(['items.product', 'user'])
+            ->get()
+            ->each(fn (PcBuild $build) => $build->evaluateAlert());
 
         Sleep::for(AppSettings::new()->sleep_seconds_between_scrape)->seconds();
     }

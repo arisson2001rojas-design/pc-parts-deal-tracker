@@ -1,5 +1,10 @@
 # <img src="public/images/logo-full.svg" width="250" height="auto" alt="PriceBuddy">
 
+> **PC Deal Hunter fork:** This branch adds a large CPU/GPU/RAM/SSD/PSU catalog,
+> curated DealNews prices, saved multi-store discoveries, comparisons, and alerts for
+> Amazon, Walmart, Micro Center, Newegg, Best Buy, and GameStop. See
+> [DEAL_HUNTER_ES.md](DEAL_HUNTER_ES.md) for the local setup and usage guide.
+
 **Track prices from the stores you actually use. Run it yourself. Keep the data. Know when a deal is real.**
 
 PriceBuddy is an open source, self-hostable price tracker for people who would rather watch products than browser tabs. Paste in a product URL, let PriceBuddy check it on a schedule, and get notified when the price or availability moves in your favour.
@@ -65,8 +70,7 @@ PriceBuddy is designed to be useful from more than the web UI. The tool ecosyste
 | Tool | What it is for |
 | --- | --- |
 | [PriceBuddy CLI](https://github.com/jez500/pricebuddy-cli) | Command-line access for humans and agents. Sync a local mirror, search products, inspect price history, run deal/drop reports, call the REST API, and expose PriceBuddy through MCP. |
-
-A browser extension is planned.
+| [Local browser companion](browser-companion/README_ES.md) | Confirms the visible USD price in Opera/Chrome when a retailer blocks unattended checks. |
 
 ## Screenshots
 

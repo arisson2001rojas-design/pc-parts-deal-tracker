@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Dto\PriceCacheDto;
+use App\Enums\ComponentType;
 use App\Enums\Statuses;
 use App\Enums\StockStatus;
 use App\Enums\Trend;
@@ -21,6 +22,7 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
@@ -47,6 +49,7 @@ use Illuminate\Support\Str;
  * @property ?int $refresh_interval
  * @property ?Carbon $next_check_at
  * @property bool $paused
+ * @property bool $paused_by_user
  * @property ?User $user
  * @property int $user_id
  * @property array $price_aggregates
@@ -57,6 +60,8 @@ use Illuminate\Support\Str;
  * @property bool $is_last_scrape_successful
  * @property bool $is_notified_price
  * @property ?string $unit_of_measure
+ * @property ?ComponentType $component_type
+ * @property ?PcPart $pcPart
  * @property Carbon $created_at
  * @property string $first_scrape_date
  */
@@ -74,6 +79,7 @@ class Product extends Model
     ];
 
     protected $casts = [
+        'component_type' => ComponentType::class,
         'status' => Statuses::class,
         'ignored_urls' => 'array',
         'price_cache' => 'array',
@@ -84,6 +90,7 @@ class Product extends Model
         'next_check_at' => 'datetime',
         'refresh_interval' => 'integer',
         'paused' => 'boolean',
+        'paused_by_user' => 'boolean',
     ];
 
     public static function booted()
@@ -130,6 +137,17 @@ class Product extends Model
         $this->forceFill([
             'next_check_at' => now()->addSeconds($this->refresh_interval + $jitter),
         ])->saveQuietly();
+    }
+
+    /**
+     * Record an explicit pause or resume decision made by the user.
+     */
+    public function setUserPaused(bool $paused): static
+    {
+        return $this->forceFill([
+            'paused' => $paused,
+            'paused_by_user' => $paused,
+        ]);
     }
 
     /**
@@ -238,6 +256,11 @@ class Product extends Model
         return $this->belongsTo(User::class);
     }
 
+    public function pcPart(): BelongsTo
+    {
+        return $this->belongsTo(PcPart::class);
+    }
+
     /**
      * Product has many prices through urls.
      */
@@ -271,6 +294,16 @@ class Product extends Model
     public function tags(): MorphToMany
     {
         return $this->morphToMany(Tag::class, 'taggable');
+    }
+
+    /**
+     * @return BelongsToMany<PcBuild, $this>
+     */
+    public function pcBuilds(): BelongsToMany
+    {
+        return $this->belongsToMany(PcBuild::class, 'pc_build_items')
+            ->withPivot('quantity')
+            ->withTimestamps();
     }
 
     /***************************************************
@@ -370,7 +403,7 @@ class Product extends Model
     public function getPrimaryImageAttribute(): string
     {
         return empty($this->image)
-            ? asset('/images/placeholder.png')
+            ? asset('/images/pc-part-placeholder.svg')
             : $this->image;
     }
 
@@ -658,14 +691,18 @@ class Product extends Model
      */
     public function updatePrices(): \Illuminate\Database\Eloquent\Collection
     {
-        $failed = $this->urls
-            ->filter(fn (Url $url) => $url->updatePrice() === null) // @phpstan-ignore-line
+        /** @var EloquentCollection<int, Url> $urls */
+        $urls = $this->urls;
+
+        $failed = $urls
+            ->filter(fn (Url $url): bool => ScrapeUrl::allowsAutomatedAccess($url->url))
+            ->filter(fn (Url $url): bool => $url->updatePrice() === null)
             ->values();
 
         $this->updatePriceCache();
         $this->updateInsightsCache();
 
-        return $failed; // @phpstan-ignore-line
+        return $failed;
     }
 
     /**

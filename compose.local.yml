@@ -1,0 +1,86 @@
+services:
+    app:
+        build:
+            context: .
+            dockerfile: docker/php.dockerfile
+        image: pc-deal-hunter:local
+        ports:
+            - "127.0.0.1:${APP_PORT:-8080}:80"
+        volumes:
+            - local_storage:/app/storage
+        environment:
+            APP_KEY: ${APP_KEY}
+            APP_URL: http://localhost:${APP_PORT:-8080}
+            APP_USER_NAME: ${APP_USER_NAME:-PC Deal Hunter}
+            APP_USER_EMAIL: ${APP_USER_EMAIL}
+            APP_USER_PASSWORD: ${APP_USER_PASSWORD}
+            DB_CONNECTION: mysql
+            DB_HOST: database
+            DB_USERNAME: pricebuddy
+            DB_PASSWORD: ${DB_PASSWORD}
+            DB_DATABASE: pricebuddy
+            SCRAPER_BASE_URL: http://scraper:3000
+            DEAL_HUNTER_SEARCH_URL: http://searxng:8080/search
+            DEAL_HUNTER_REFRESH_HOURS: ${DEAL_HUNTER_REFRESH_HOURS:-8}
+            DEAL_HUNTER_USER_CONFIRMED_PRICE_HOURS: ${DEAL_HUNTER_USER_CONFIRMED_PRICE_HOURS:-8}
+            PC_PARTS_TRACKING_INTERVAL_SECONDS: ${PC_PARTS_TRACKING_INTERVAL_SECONDS:-28800}
+            PC_PARTS_BULK_TRACK_LIMIT: ${PC_PARTS_BULK_TRACK_LIMIT:-25}
+            PRICE_EXTRACTOR_URL: http://price-extractor:8000
+            BEST_BUY_API_KEY: ${BEST_BUY_API_KEY:-}
+            AFFILIATE_ENABLED: 'false'
+        depends_on:
+            database:
+                condition: service_healthy
+            searxng:
+                condition: service_started
+            price-extractor:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "curl", "--fail", "http://localhost/up"]
+            interval: 15s
+            timeout: 5s
+            retries: 20
+            start_period: 90s
+        restart: unless-stopped
+
+    database:
+        image: mysql:8.4
+        environment:
+            MYSQL_DATABASE: pricebuddy
+            MYSQL_USER: pricebuddy
+            MYSQL_PASSWORD: ${DB_PASSWORD}
+            MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+        volumes:
+            - local_database:/var/lib/mysql
+        healthcheck:
+            test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD --silent"]
+            interval: 10s
+            timeout: 5s
+            retries: 12
+            start_period: 45s
+        restart: unless-stopped
+
+    searxng:
+        image: searxng/searxng:latest
+        volumes:
+            - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+        environment:
+            SEARXNG_BASE_URL: http://searxng:8080/
+        restart: unless-stopped
+
+    scraper:
+        image: jez500/seleniumbase-scrapper:latest
+        restart: unless-stopped
+
+    price-extractor:
+        build:
+            context: ./docker/price-extractor
+        image: pc-deal-hunter-price-extractor:local
+        environment:
+            ALLOWED_RETAILER_DOMAINS: amazon.com,walmart.com,microcenter.com,newegg.com,bestbuy.com,gamestop.com
+            MIN_HOST_INTERVAL_SECONDS: '3'
+        restart: unless-stopped
+
+volumes:
+    local_storage:
+    local_database:

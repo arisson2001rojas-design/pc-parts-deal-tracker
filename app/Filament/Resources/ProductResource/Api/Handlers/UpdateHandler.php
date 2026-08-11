@@ -4,6 +4,7 @@ namespace App\Filament\Resources\ProductResource\Api\Handlers;
 
 use App\Filament\Resources\ProductResource;
 use App\Filament\Resources\ProductResource\Api\Requests\UpdateProductRequest;
+use App\Models\Product;
 use Dedoc\Scramble\Attributes\Group;
 use Illuminate\Http\JsonResponse;
 use Rupadana\ApiService\Http\Handlers;
@@ -42,6 +43,12 @@ class UpdateHandler extends Handlers
 
         $values = $request->validated();
         unset($values['user_id']);
+
+        /** @var Product $model */
+        if (array_key_exists('paused', $values)) {
+            $model->setUserPaused((bool) $values['paused']);
+            unset($values['paused']);
+        }
 
         $model->fill($values);
         $model->save();

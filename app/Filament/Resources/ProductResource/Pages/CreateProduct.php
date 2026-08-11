@@ -37,6 +37,10 @@ class CreateProduct extends CreateRecord
 
         $product = $urlModel->product;
 
+        if (filled(data_get($data, 'component_type'))) {
+            $product->update(['component_type' => data_get($data, 'component_type')]);
+        }
+
         // Scope submitted tag IDs to the current user's own tags: the select only
         // offers the user's tags, but a tampered request could submit arbitrary IDs.
         $tagIds = Tag::query()
