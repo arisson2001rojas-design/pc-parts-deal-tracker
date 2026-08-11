@@ -24,11 +24,11 @@ class PcPartResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-tag';
 
-    protected static ?string $navigationLabel = 'Cheapest today';
+    protected static ?string $navigationLabel = 'Más barato hoy';
 
-    protected static ?string $modelLabel = 'catalog component';
+    protected static ?string $modelLabel = 'componente del catálogo';
 
-    protected static ?string $pluralModelLabel = 'PC parts catalog';
+    protected static ?string $pluralModelLabel = 'catálogo de componentes';
 
     protected static ?int $navigationSort = 1;
 
@@ -37,21 +37,22 @@ class PcPartResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->heading('Cheapest monitored PC parts today')
-            ->description('The catalog comes from BuildCores OpenDB (ODC-By 1.0). Numeric prices only appear after a trusted check; Newegg discoveries use curated feeds because direct automated access is not permitted.')
+            ->heading('Componentes PC más baratos comprobados hoy')
+            ->description('Catálogo base de BuildCores OpenDB (ODC-By 1.0). Solo mostramos precios numéricos después de una comprobación confiable.')
             ->columns([
                 PcPartCardColumn::make('name')
-                    ->label('Component')
+                    ->label('Componente')
                     ->searchable(['name', 'manufacturer', 'series', 'variant'])
                     ->sortable(),
             ])
             ->contentGrid([
-                'md' => 2,
-                'xl' => 3,
+                'default' => 1,
+                'lg' => 2,
+                '2xl' => 3,
             ])
             ->filters([
                 SelectFilter::make('component_type')
-                    ->label('Component type')
+                    ->label('Tipo de componente')
                     ->options(collect(ComponentType::cases())->mapWithKeys(
                         fn (ComponentType $type): array => [$type->value => $type->getLabel()]
                     )->all()),
@@ -60,20 +61,20 @@ class PcPartResource extends Resource
             ->paginated(AdminPanelProvider::DEFAULT_PAGINATION)
             ->actions([
                 Tables\Actions\Action::make('track')
-                    ->label('Track prices')
+                    ->label('Monitorear precios')
                     ->icon('heroicon-o-bell')
                     ->visible(fn (PcPart $record): bool => $record->currentUserProduct === null)
                     ->action(function (PcPart $record, CatalogTrackingService $tracking): void {
                         $tracking->track($record, auth()->id());
                         Notification::make()
-                            ->title('Price check queued')
-                            ->body('Approved retailer checks were queued. Newegg links are discovered through curated deal feeds.')
+                            ->title('Comprobación programada')
+                            ->body('PriceBuddy revisará las tiendas compatibles en segundo plano.')
                             ->success()
                             ->send();
                     }),
 
                 Tables\Actions\Action::make('refresh')
-                    ->label('Check now')
+                    ->label('Revisar ahora')
                     ->icon('heroicon-o-arrow-path')
                     ->visible(fn (PcPart $record): bool => $record->currentUserProduct !== null)
                     ->action(function (PcPart $record): void {
@@ -81,11 +82,11 @@ class PcPartResource extends Resource
                             UpdateProductPricesJob::dispatch($product, true);
                         }
 
-                        Notification::make()->title('Price check queued')->success()->send();
+                        Notification::make()->title('Comprobación programada')->success()->send();
                     }),
 
                 Tables\Actions\Action::make('view_product')
-                    ->label('Price history')
+                    ->label('Historial de precio')
                     ->icon('heroicon-o-chart-bar')
                     ->visible(fn (PcPart $record): bool => $record->currentUserProduct !== null)
                     ->url(fn (PcPart $record): string => ProductResource::getUrl('view', [
@@ -93,7 +94,7 @@ class PcPartResource extends Resource
                     ])),
 
                 Tables\Actions\Action::make('buy')
-                    ->label('Open store')
+                    ->label('Abrir tienda')
                     ->icon('heroicon-o-arrow-top-right-on-square')
                     ->visible(fn (PcPart $record): bool => filled(data_get($record->currentUserProduct?->price_cache, '0.url')))
                     ->url(fn (PcPart $record): ?string => data_get($record->currentUserProduct?->price_cache, '0.url'))
@@ -101,14 +102,14 @@ class PcPartResource extends Resource
             ])
             ->bulkActions([
                 Tables\Actions\BulkAction::make('track')
-                    ->label('Track selected prices')
+                    ->label('Monitorear seleccionados')
                     ->icon('heroicon-o-bell')
                     ->action(function (Collection $records, CatalogTrackingService $tracking): void {
                         $limit = max(1, (int) config('price_buddy.pc_parts_bulk_track_limit', 25));
                         if ($records->count() > $limit) {
                             Notification::make()
-                                ->title('Too many parts selected')
-                                ->body("Select at most {$limit} components at a time so retailer checks stay controlled.")
+                                ->title('Demasiados componentes seleccionados')
+                                ->body("Selecciona un máximo de {$limit} componentes para mantener controladas las revisiones.")
                                 ->danger()
                                 ->send();
 
@@ -120,12 +121,12 @@ class PcPartResource extends Resource
                                 $tracking->track($part, auth()->id());
                             }
                         });
-                        Notification::make()->title('Price checks queued')->success()->send();
+                        Notification::make()->title('Comprobaciones programadas')->success()->send();
                     })
                     ->deselectRecordsAfterCompletion(),
             ])
-            ->emptyStateHeading('No monitored prices for today yet')
-            ->emptyStateDescription('Open the All catalog tab, choose components, and select Track prices. Checks continue automatically about every 8 hours.')
+            ->emptyStateHeading('Aún no hay precios comprobados hoy')
+            ->emptyStateDescription('Abre «Todo el catálogo», elige componentes y selecciona «Monitorear precios». Las revisiones continuarán aproximadamente cada 8 horas.')
             ->emptyStateIcon('heroicon-o-magnifying-glass');
     }
 

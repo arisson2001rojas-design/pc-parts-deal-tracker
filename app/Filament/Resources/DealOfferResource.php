@@ -22,7 +22,7 @@ class DealOfferResource extends Resource
 
     protected static ?string $navigationGroup = 'PC Gaming';
 
-    protected static ?string $modelLabel = 'deal';
+    protected static ?string $modelLabel = 'oferta';
 
     protected static ?string $pluralModelLabel = 'ofertas';
 
@@ -41,8 +41,6 @@ class DealOfferResource extends Resource
             ])
             ->contentGrid([
                 'default' => 1,
-                'lg' => 2,
-                '2xl' => 3,
             ])
             ->filters([
                 SelectFilter::make('store')
@@ -77,6 +75,7 @@ class DealOfferResource extends Resource
                 ->orderByRaw('CASE WHEN price IS NULL THEN 1 ELSE 0 END')
                 ->orderBy('price')
             )
+            ->recordUrl(null)
             ->poll('10s')
             ->paginated(AdminPanelProvider::DEFAULT_PAGINATION)
             ->emptyStateHeading('Buscando ofertas para tu PC')

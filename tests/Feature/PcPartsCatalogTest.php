@@ -188,7 +188,7 @@ class PcPartsCatalogTest extends TestCase
         Queue::assertPushed(UpdateProductPricesJob::class, 1);
     }
 
-    public function test_catalog_cards_and_pc_build_picker_render_with_real_parts(): void
+    public function test_catalog_cards_and_typed_pc_build_picker_render(): void
     {
         $this->withoutVite();
         config()->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
@@ -202,10 +202,12 @@ class PcPartsCatalogTest extends TestCase
 
         $this->get(PcPartResource::getUrl('index').'?activeTab=all')
             ->assertOk()
+            ->assertSee('pc-part-card', false)
             ->assertSee($part->name);
         $this->get(PcBuildResource::getUrl('create'))
             ->assertOk()
-            ->assertSee($part->name);
+            ->assertSee('Selecciona el tipo')
+            ->assertSee('Solo aparecen piezas del tipo seleccionado.');
     }
 
     private function createUsStores(): void

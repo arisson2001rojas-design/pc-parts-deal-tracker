@@ -21,6 +21,8 @@ class ListDealOffers extends ListRecords
 {
     protected static string $resource = DealOfferResource::class;
 
+    protected static ?string $title = 'Cazador de ofertas';
+
     public function mount(): void
     {
         parent::mount();

@@ -50,4 +50,41 @@ class ProductCardDetailTest extends TestCase
             ->assertSee($product->nextCheckShortLabel())
             ->assertDontSee('setInterval');
     }
+
+    public function test_product_list_summary_does_not_render_a_chart_for_flat_history(): void
+    {
+        $product = $this->scheduledProduct();
+        $product->forceFill([
+            'price_cache' => [[
+                'price' => 100.0,
+                'store_name' => 'Amazon US',
+                'history' => [
+                    now()->subDay()->toDateString() => 100.0,
+                    now()->toDateString() => 100.0,
+                ],
+            ]],
+        ])->saveQuietly();
+
+        Livewire::test(ProductCardDetail::class, ['product' => $product->fresh(), 'showChart' => true])
+            ->assertSee('Amazon US')
+            ->assertDontSee('h-10 w-36', false);
+    }
+
+    public function test_product_list_summary_renders_a_compact_chart_for_price_changes(): void
+    {
+        $product = $this->scheduledProduct();
+        $product->forceFill([
+            'price_cache' => [[
+                'price' => 100.0,
+                'store_name' => 'Amazon US',
+                'history' => [
+                    now()->subDay()->toDateString() => 120.0,
+                    now()->toDateString() => 100.0,
+                ],
+            ]],
+        ])->saveQuietly();
+
+        Livewire::test(ProductCardDetail::class, ['product' => $product->fresh(), 'showChart' => true])
+            ->assertSee('h-10 w-36', false);
+    }
 }

@@ -22,23 +22,29 @@ class TagResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-tag';
 
+    protected static ?string $navigationLabel = 'Etiquetas';
+
+    protected static ?string $modelLabel = 'etiqueta';
+
+    protected static ?string $pluralModelLabel = 'etiquetas';
+
     public static function getWeightHelperText(): string
     {
-        return __('Lower values appear first. This will affect the order of product grouping on the homepage.');
+        return 'Los valores menores aparecen primero y ordenan los grupos de productos en Inicio.';
     }
 
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
-                Forms\Components\Section::make('Tag')
-                    ->description(__('Used for grouping products'))
+                Forms\Components\Section::make('Etiqueta')
+                    ->description('Sirve para agrupar productos en Inicio')
                     ->schema([
                         Forms\Components\TextInput::make('name')
-                            ->label('Name')
+                            ->label('Nombre')
                             ->required(),
                         Forms\Components\TextInput::make('weight')
-                            ->label('Sort order')
+                            ->label('Orden')
                             ->numeric()
                             ->default(0)
                             ->helperText(self::getWeightHelperText()),
@@ -58,21 +64,21 @@ class TagResource extends Resource
                         ->sortable(),
                     Tables\Columns\TextColumn::make('products_count')
                         ->label(__('Products'))
-                        ->formatStateUsing(fn ($state) => $state.' products')
+                        ->formatStateUsing(fn ($state) => $state.' '.((int) $state === 1 ? 'producto' : 'productos'))
                         ->color('gray')
                         ->sortable(),
                     Tables\Columns\TextColumn::make('weight')
-                        ->label(__('Sort order'))
+                        ->label('Orden')
                         ->color('gray')
                         ->sortable(),
-                ])->from('sm'),
+                ])->from('md'),
             ])
             ->defaultSort('weight')
             ->filters([
                 //
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\EditAction::make()->label('Editar'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -81,7 +87,13 @@ class TagResource extends Resource
             ])
             ->modifyQueryUsing(function (Builder $query) {
                 $query->currentUser()->withCount(['products']);
-            });
+            })
+            ->emptyStateHeading('Aún no tienes etiquetas')
+            ->emptyStateDescription('Crea una etiqueta para ordenar y agrupar tus productos en Inicio.')
+            ->emptyStateIcon('heroicon-o-tag')
+            ->emptyStateActions([
+                Tables\Actions\CreateAction::make()->label('Añadir etiqueta'),
+            ]);
     }
 
     public static function getRelations(): array

@@ -52,16 +52,18 @@ class DashboardSections
     }
 
     /**
-     * @return array{tracked:int, atLowest:int, belowAverage:int, outOfStock:int, potentialSavings:float}
+     * @return array{tracked:int, comparable:int, atLowest:int, belowAverage:int, outOfStock:int, potentialSavings:float}
      */
     public function statBar(): array
     {
         $products = $this->trackedProducts();
+        $comparableProducts = $products->filter(fn (Product $product): bool => $product->hasComparablePriceHistory());
 
         return [
             'tracked' => $products->count(),
-            'atLowest' => $products->filter(fn (Product $p): bool => $p->trend === Trend::Lowest->value)->count(),
-            'belowAverage' => $products->filter(fn (Product $p): bool => in_array($p->trend, [Trend::Down->value, Trend::Lowest->value], true))->count(),
+            'comparable' => $comparableProducts->count(),
+            'atLowest' => $comparableProducts->filter(fn (Product $p): bool => $p->trend === Trend::Lowest->value)->count(),
+            'belowAverage' => $comparableProducts->filter(fn (Product $p): bool => in_array($p->trend, [Trend::Down->value, Trend::Lowest->value], true))->count(),
             'outOfStock' => $products->filter(fn (Product $p): bool => $this->isOutOfStock($p))->count(),
             'potentialSavings' => round($products->sum(fn (Product $p): float => max(0, $p->getPriceCacheAggregate('avg') - $p->current_price)), 2),
         ];

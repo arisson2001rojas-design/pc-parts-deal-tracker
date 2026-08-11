@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\ComponentType;
 use App\Filament\Resources\PcBuildResource\Pages;
 use App\Models\PcBuild;
 use App\Models\PcPart;
@@ -12,6 +13,8 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 use Filament\Resources\Resource;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables;
@@ -20,6 +23,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\Rule;
 
 class PcBuildResource extends Resource
 {
@@ -27,11 +31,11 @@ class PcBuildResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-computer-desktop';
 
-    protected static ?string $navigationLabel = 'PC Builds';
+    protected static ?string $navigationLabel = 'Armados de PC';
 
-    protected static ?string $modelLabel = 'PC build';
+    protected static ?string $modelLabel = 'armado de PC';
 
-    protected static ?string $pluralModelLabel = 'PC builds';
+    protected static ?string $pluralModelLabel = 'armados de PC';
 
     protected static ?int $navigationSort = 0;
 
@@ -40,48 +44,84 @@ class PcBuildResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
-            Forms\Components\Section::make('Build budget')->schema([
+            Forms\Components\Section::make('Presupuesto del armado')->schema([
                 TextInput::make('name')
+                    ->label('Nombre')
                     ->required()
                     ->maxLength(255)
-                    ->placeholder('Budget gaming PC'),
+                    ->placeholder('PC gaming económica'),
 
                 TextInput::make('target_total')
-                    ->label('Alert when total is at or below')
+                    ->label('Avisar cuando el total sea igual o menor')
                     ->numeric()
                     ->minValue(0.01)
                     ->suffix(CurrencyHelper::getSymbol())
-                    ->helperText('The total uses the cheapest available price for each selected product.'),
+                    ->helperText('El total usa el precio disponible más barato de cada componente seleccionado.'),
             ])->columns(2),
 
-            Forms\Components\Section::make('Components')->schema([
+            Forms\Components\Section::make('Componentes')->schema([
                 Repeater::make('items')
+                    ->label('Piezas del armado')
                     ->relationship()
                     ->schema([
+                        Select::make('component_type')
+                            ->label('Tipo')
+                            ->options(collect(ComponentType::cases())->mapWithKeys(
+                                fn (ComponentType $type): array => [$type->value => $type->getLabel()]
+                            )->all())
+                            ->placeholder('Selecciona el tipo')
+                            ->native(false)
+                            ->required()
+                            ->live()
+                            ->dehydrated(false)
+                            ->afterStateHydrated(function (Select $component, mixed $state, Get $get): void {
+                                if (filled($state) || blank($get('pc_part_id'))) {
+                                    return;
+                                }
+
+                                $component->state(PcPart::query()->find($get('pc_part_id'))?->component_type?->value);
+                            })
+                            ->afterStateUpdated(fn (Set $set): mixed => $set('pc_part_id', null))
+                            ->columnSpan(['default' => 12, 'md' => 3]),
+
                         Select::make('pc_part_id')
-                            ->label('Choose a component')
-                            ->options(fn (): array => self::catalogOptions())
-                            ->getSearchResultsUsing(fn (string $search): array => self::catalogOptions($search))
+                            ->label('Componente del catálogo')
+                            ->options(fn (Get $get): array => self::catalogOptions(
+                                ComponentType::tryFrom((string) $get('component_type'))
+                            ))
+                            ->getSearchResultsUsing(fn (string $search, Get $get): array => self::catalogOptions(
+                                ComponentType::tryFrom((string) $get('component_type')),
+                                $search,
+                            ))
                             ->getOptionLabelUsing(fn ($value): ?string => PcPart::query()->find($value)?->display_name)
                             ->searchable()
-                            ->searchPrompt('Search by brand, model, series, or capacity...')
-                            ->loadingMessage('Searching the component catalog...')
-                            ->noSearchResultsMessage('No matching component found. Try a shorter model name.')
+                            ->searchPrompt('Busca por marca, modelo, serie o capacidad…')
+                            ->loadingMessage('Buscando en el catálogo…')
+                            ->noSearchResultsMessage('No encontramos un componente de ese tipo. Prueba un modelo más corto.')
+                            ->helperText('Solo aparecen piezas del tipo seleccionado.')
                             ->searchDebounce(350)
                             ->optionsLimit(50)
                             ->native(false)
+                            ->live()
+                            ->disabled(fn (Get $get): bool => blank($get('component_type')))
                             ->required()
                             ->distinct()
-                            ->columnSpan(9),
+                            ->rules(fn (Get $get): array => [
+                                Rule::exists('pc_parts', 'id')->where(
+                                    fn ($query) => $query->where('component_type', $get('component_type'))
+                                ),
+                            ])
+                            ->columnSpan(['default' => 12, 'md' => 7]),
 
                         TextInput::make('quantity')
+                            ->label('Cantidad')
                             ->numeric()
                             ->integer()
                             ->minValue(1)
                             ->maxValue(10)
                             ->default(1)
                             ->required()
-                            ->columnSpan(3),
+                            ->columnSpan(['default' => 12, 'md' => 2]),
                     ])
                     ->columns(12)
                     ->columnSpanFull()
@@ -89,17 +129,17 @@ class PcBuildResource extends Resource
                     ->minItems(1)
                     ->itemLabel(fn (array $state): ?string => filled($state['pc_part_id'] ?? null)
                         ? PcPart::query()->find($state['pc_part_id'])?->display_name
-                        : 'New component')
-                    ->addActionLabel('Add another component')
+                        : 'Nuevo componente')
+                    ->addActionLabel('Añadir otro componente')
                     ->reorderable(false),
             ])
-                ->description('Search the open CPU, GPU, motherboard, RAM, SSD/HDD/SSHD, CPU cooler, case, and PSU catalog. Selecting a part starts price tracking automatically about every 8 hours.'),
+                ->description('Elige primero el tipo y luego una pieza compatible del catálogo. Al guardarla, PriceBuddy inicia el monitoreo aproximadamente cada 8 horas.'),
 
-            Forms\Components\Section::make('What the total includes')
+            Forms\Components\Section::make('Qué incluye el total')
                 ->schema([
                     Forms\Components\Placeholder::make('total_note')
                         ->hiddenLabel()
-                        ->content('Listed item prices only. Shipping, tax, import fees, and currency conversion are not included. Keep every product in a build in the same currency.'),
+                        ->content('Solo incluye los precios listados. No incluye envío, impuestos, importación ni conversión de moneda. Mantén todos los productos del armado en la misma moneda.'),
                 ])
                 ->collapsible()
                 ->collapsed(),
@@ -116,30 +156,30 @@ class PcBuildResource extends Resource
                     ->weight(FontWeight::Bold),
 
                 TextColumn::make('component_count')
-                    ->label('Parts')
+                    ->label('Piezas')
                     ->badge()
                     ->alignCenter(),
 
                 TextColumn::make('current_total')
-                    ->label('Cheapest total')
+                    ->label('Total más barato')
                     ->formatStateUsing(fn ($state): string => CurrencyHelper::toString($state))
                     ->color(fn (PcBuild $record): string => $record->target_total && $record->missing_price_count === 0 && $record->current_total <= $record->target_total
                         ? 'success'
                         : 'primary'),
 
                 TextColumn::make('target_total')
-                    ->label('Alert target')
-                    ->placeholder('Not set')
-                    ->formatStateUsing(fn ($state): string => filled($state) ? CurrencyHelper::toString($state) : 'Not set'),
+                    ->label('Objetivo')
+                    ->placeholder('Sin definir')
+                    ->formatStateUsing(fn ($state): string => filled($state) ? CurrencyHelper::toString($state) : 'Sin definir'),
 
                 TextColumn::make('missing_price_count')
-                    ->label('Unavailable')
+                    ->label('Disponibilidad')
                     ->badge()
                     ->color(fn ($state): string => (int) $state > 0 ? 'warning' : 'success')
-                    ->formatStateUsing(fn ($state): string => (int) $state > 0 ? $state.' missing' : 'Complete'),
+                    ->formatStateUsing(fn ($state): string => (int) $state > 0 ? $state.' sin precio' : 'Completo'),
 
                 TextColumn::make('updated_at')
-                    ->label('Updated')
+                    ->label('Actualizado')
                     ->since()
                     ->dateTimeTooltip()
                     ->sortable(),
@@ -147,19 +187,19 @@ class PcBuildResource extends Resource
             ->paginated(AdminPanelProvider::DEFAULT_PAGINATION)
             ->defaultSort('updated_at', 'desc')
             ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\EditAction::make()->label('Editar'),
+                Tables\Actions\DeleteAction::make()->label('Eliminar'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])
-            ->emptyStateHeading('Compare a complete PC build')
-            ->emptyStateDescription('Group tracked CPU, GPU, motherboard, RAM, storage, CPU cooler, case, and power-supply listings to see their cheapest combined price.')
+            ->emptyStateHeading('Compara un armado completo')
+            ->emptyStateDescription('Agrupa CPU, GPU, motherboard, RAM, almacenamiento, cooler, gabinete y fuente para ver el total combinado más barato.')
             ->emptyStateIcon('heroicon-o-computer-desktop')
             ->emptyStateActions([
-                Tables\Actions\CreateAction::make()->label('Create PC build'),
+                Tables\Actions\CreateAction::make()->label('Crear armado de PC'),
             ]);
     }
 
@@ -189,9 +229,10 @@ class PcBuildResource extends Resource
         ];
     }
 
-    private static function catalogOptions(string $search = ''): array
+    private static function catalogOptions(?ComponentType $componentType, string $search = ''): array
     {
         return PcPart::query()
+            ->when($componentType, fn (Builder $query): Builder => $query->where('component_type', $componentType->value))
             ->when($search !== '', fn (Builder $query) => $query->searchCatalog($search))
             ->orderBy('component_type')
             ->orderByDesc('release_year')
@@ -206,7 +247,7 @@ class PcBuildResource extends Resource
                     $stores = collect(array_keys($product->retailer_urls ?? []))
                         ->map(fn (string $store): string => ucfirst($store))
                         ->join(', ');
-                    $availability = $stores !== '' ? ' · '.$stores : ' · no store identifier';
+                    $availability = $stores !== '' ? ' · '.$stores : ' · sin tienda identificada';
 
                     return [$product->getKey() => $maker.$product->title.$year.$availability];
                 })->all();

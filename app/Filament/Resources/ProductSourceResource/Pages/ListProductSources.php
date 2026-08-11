@@ -11,10 +11,13 @@ class ListProductSources extends ListRecords
 {
     protected static string $resource = ProductSourceResource::class;
 
+    protected static ?string $title = 'Fuentes de productos';
+
     protected function getHeaderActions(): array
     {
         return [
             Actions\CreateAction::make()
+                ->label('Nueva fuente')
                 ->color('gray')
                 ->icon(Icons::Add->value),
         ];

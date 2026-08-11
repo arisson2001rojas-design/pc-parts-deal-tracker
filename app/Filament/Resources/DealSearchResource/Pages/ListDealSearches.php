@@ -10,8 +10,10 @@ class ListDealSearches extends ListRecords
 {
     protected static string $resource = DealSearchResource::class;
 
+    protected static ?string $title = 'Mis cacerías';
+
     protected function getHeaderActions(): array
     {
-        return [Actions\CreateAction::make()->label('New hunt')];
+        return [Actions\CreateAction::make()->label('Nueva cacería')];
     }
 }

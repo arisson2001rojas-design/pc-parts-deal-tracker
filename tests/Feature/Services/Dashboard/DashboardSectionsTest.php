@@ -218,6 +218,21 @@ class DashboardSectionsTest extends TestCase
         $this->assertSame(2, $stats['belowAverage']);
     }
 
+    public function test_stat_bar_does_not_present_flat_history_as_a_deal_trend(): void
+    {
+        $flat = $this->productWithPrices([60, 60]);
+
+        $this->assertSame('lowest', $flat->fresh()->trend);
+        $this->assertFalse($flat->fresh()->hasComparablePriceHistory());
+
+        $stats = (new DashboardSections($this->user))->statBar();
+
+        $this->assertSame(1, $stats['tracked']);
+        $this->assertSame(0, $stats['comparable']);
+        $this->assertSame(0, $stats['atLowest']);
+        $this->assertSame(0, $stats['belowAverage']);
+    }
+
     public function test_stat_bar_out_of_stock_counts_products_whose_price_cache_has_an_out_of_stock_row(): void
     {
         // One in-stock URL (keeps current_price > 0 / product tracked) plus one

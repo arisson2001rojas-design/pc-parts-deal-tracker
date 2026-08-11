@@ -50,12 +50,13 @@ class ProductBadgesTest extends TestCase
             ->assertSee('data-verdict-color="success"', false);
     }
 
-    public function test_low_confidence_verdict_is_greyed_with_confidence_tooltip(): void
+    public function test_low_confidence_verdict_uses_neutral_copy_and_confidence_tooltip(): void
     {
         $product = $this->productWithVerdict('great', 'Great time to buy', true);
 
         $this->renderBadges($product)
-            ->assertSee('Great time to buy')
+            ->assertSee('Sin historial suficiente')
+            ->assertDontSee('Great time to buy')
             ->assertSee('Not enough price history for a confident verdict')
             ->assertSee('data-verdict-color="gray"', false);
     }
@@ -78,6 +79,18 @@ class ProductBadgesTest extends TestCase
 
         $this->renderBadges($product->fresh())
             ->assertDontSee('Great time to buy')
-            ->assertSee('Notify match');
+            ->assertSee('Precio objetivo');
+    }
+
+    public function test_warning_verdict_and_tracking_state_have_visual_priority_order(): void
+    {
+        $product = $this->productWithVerdict('great', 'Great time to buy', false);
+        $product->forceFill(['paused' => true])->saveQuietly();
+
+        $this->renderBadges($product->fresh())
+            ->assertSeeInOrder(['Error de revisión', 'Great time to buy', 'Pausado'])
+            ->assertSee('data-status-priority="primary"', false)
+            ->assertSee('data-status-priority="secondary"', false)
+            ->assertSee('data-status-priority="tertiary"', false);
     }
 }

@@ -58,6 +58,12 @@ class StoreResource extends Resource
 
     protected static ?int $navigationSort = 20;
 
+    protected static ?string $navigationLabel = 'Tiendas';
+
+    protected static ?string $modelLabel = 'tienda';
+
+    protected static ?string $pluralModelLabel = 'tiendas';
+
     public static function form(Form $form): Form
     {
         return $form
@@ -273,22 +279,25 @@ class StoreResource extends Resource
                             ->searchable()
                             ->sortable()
                             ->weight(FontWeight::Bold)
-                            ->description(fn (Store $record): HtmlString => $record->domains_html),
+                            ->description(fn (Store $record): HtmlString => $record->domains_html)
+                            ->wrap()
+                            ->extraAttributes(['class' => 'min-w-0']),
                     ]),
                     TextColumn::make('products_count')
+                        ->label('Productos')
                         ->sortable()
-                        ->formatStateUsing(fn (string $state) => $state.' products')
-                        ->extraAttributes(['class' => 'min-w-36 md:flex md:justify-end pr-4'])
+                        ->formatStateUsing(fn (string $state) => $state.' '.((int) $state === 1 ? 'producto' : 'productos'))
+                        ->extraAttributes(['class' => 'md:flex md:justify-end md:pe-4'])
                         ->grow(false),
                     TextColumn::make('settings.scraper_service')
-                        ->label('Scraper')
+                        ->label('Motor')
                         ->badge()
                         ->sortable()
                         ->extraAttributes(['class' => 'min-w-16'])
                         ->formatStateUsing(fn (string $state) => strtoupper($state))
                         ->color(fn (Store $record): array => ScraperService::tryFrom($record->scraper_service)->getColor())
                         ->grow(false),
-                ])->from('sm'),
+                ])->from('md'),
 
             ])
             ->paginated(AdminPanelProvider::DEFAULT_PAGINATION)
@@ -296,10 +305,10 @@ class StoreResource extends Resource
             ->filters([
                 SelectFilter::make('settings->scraper_service')
                     ->options(ScraperService::class)
-                    ->label('Scraper'),
+                    ->label('Motor de extracción'),
             ])
             ->actions([
-                EditAction::make(),
+                EditAction::make()->label('Editar'),
             ])
             ->bulkActions([
                 BulkActionGroup::make([
@@ -308,7 +317,10 @@ class StoreResource extends Resource
             ])
             ->modifyQueryUsing(function (Builder $query) {
                 $query->withCount('products');
-            });
+            })
+            ->emptyStateHeading('No hay tiendas configuradas')
+            ->emptyStateDescription('Añade una tienda o importa una configuración existente.')
+            ->emptyStateIcon('heroicon-o-building-storefront');
     }
 
     public static function getRelations(): array

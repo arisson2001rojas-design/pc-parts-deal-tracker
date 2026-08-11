@@ -10,10 +10,12 @@ class ListPcBuilds extends ListRecords
 {
     protected static string $resource = PcBuildResource::class;
 
+    protected static ?string $title = 'Armados de PC';
+
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make(),
+            Actions\CreateAction::make()->label('Crear armado de PC'),
         ];
     }
 }

@@ -543,6 +543,22 @@ class Product extends Model
     }
 
     /**
+     * Whether the cached history contains an actual price change worth
+     * comparing or charting. A synthetic/flat history is still valid data,
+     * but it should not be presented as a meaningful deal trend.
+     */
+    public function hasComparablePriceHistory(): bool
+    {
+        return $this->getPriceCache()->contains(
+            fn (PriceCacheDto $price): bool => $price->getHistory()
+                ->filter(fn ($value): bool => is_numeric($value))
+                ->map(fn ($value): float => round((float) $value, 4))
+                ->unique()
+                ->count() > 1
+        );
+    }
+
+    /**
      * Get the price aggregate for this product via getPriceCache().
      */
     public function getPriceCacheAggregate(string $method = 'avg', ?int $urlId = null): float|int
