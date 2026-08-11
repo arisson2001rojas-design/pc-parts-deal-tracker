@@ -23,7 +23,7 @@ function render(settings) {
       style: "currency",
       currency: "USD"
     });
-    last.textContent = `${String(settings.lastDiscovery.componentType || "PC").toUpperCase()} Â· ${price}`;
+    last.textContent = `${String(settings.lastDiscovery.componentType || "PC").toUpperCase()} · ${price}`;
     last.title = settings.lastDiscovery.title || "";
   }
 }
