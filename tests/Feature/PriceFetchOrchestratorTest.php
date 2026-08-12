@@ -15,6 +15,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Mockery;
+use RuntimeException;
 use Tests\TestCase;
 
 class PriceFetchOrchestratorTest extends TestCase
@@ -66,6 +67,13 @@ class PriceFetchOrchestratorTest extends TestCase
         $this->assertGreaterThanOrEqual(0, $result->latencyMs);
         $this->assertNull($result->error);
         $this->assertSame(0, $fallbackCalls);
+        $this->assertCount(1, $result->attempts);
+        $this->assertSame('price_extractor', $result->attempts[0]['engine']);
+        $this->assertSame('success', $result->attempts[0]['status']);
+        $this->assertSame(200, $result->attempts[0]['http_status']);
+        $this->assertSame($result->latencyMs, $result->attempts[0]['latency_ms']);
+        $this->assertSame($result->attempts, $result->toArray()['attempts']);
+        $this->assertSame($result->attempts, $result->toScrapeArray($store)['attempts']);
     }
 
     public function test_http_availability_and_currency_are_preserved_by_scrape_url(): void
@@ -226,6 +234,7 @@ class PriceFetchOrchestratorTest extends TestCase
                     'title' => 'AMD Ryzen 7 7700X3D',
                     'image_url' => 'https://images.example/cpu.jpg',
                     'availability' => 'unknown',
+                    'seller' => 'HTTP Seller',
                     'candidates' => [],
                 ],
             ], 422),
@@ -258,7 +267,17 @@ class PriceFetchOrchestratorTest extends TestCase
         $this->assertSame('seleniumbase', $result->engine);
         $this->assertSame('store_strategy', $result->source);
         $this->assertSame('149.99', $result->candidates[0]['amount']);
+        $this->assertSame('https://images.example/browser-cpu.jpg', $result->image);
+        $this->assertSame('InStock', $result->availability);
+        $this->assertSame('HTTP Seller', $result->seller);
         $this->assertSame(1, $fallbackCalls);
+        $this->assertCount(2, $result->attempts);
+        $this->assertSame(['no_price', 'success'], array_column($result->attempts, 'status'));
+        $this->assertSame(['price_extractor', 'seleniumbase'], array_column($result->attempts, 'engine'));
+        $this->assertSame(
+            array_sum(array_column($result->attempts, 'latency_ms')),
+            $result->latencyMs,
+        );
     }
 
     public function test_timeout_is_normalized_as_retryable(): void
@@ -269,6 +288,7 @@ class PriceFetchOrchestratorTest extends TestCase
 
         $this->assertSame(PriceFetchStatus::Timeout, $timeout->status);
         $this->assertSame(['kind' => 'timeout', 'retryable' => true], $timeout->error);
+        $this->assertSame('timeout', $timeout->attempts[0]['status']);
     }
 
     public function test_network_error_is_normalized_as_retryable(): void
@@ -287,13 +307,17 @@ class PriceFetchOrchestratorTest extends TestCase
         Http::fake([
             'price-extractor.test/extract' => Http::response([
                 'error' => 'retailer returned a verification page',
-                'blocked' => true,
-            ], 409),
+            ], 403),
         ]);
 
         $challenge = resolve(RetailPriceExtractorClient::class)->fetchUrl(self::PRODUCT_URL);
         $this->assertSame(PriceFetchStatus::Challenge, $challenge->status);
-        $this->assertSame(['kind' => 'challenge', 'retryable' => true], $challenge->error);
+        $this->assertSame([
+            'kind' => 'challenge',
+            'retryable' => true,
+            'http_status' => 403,
+            'reason' => 'retailer returned a verification page',
+        ], $challenge->error);
 
         $result = resolve(PriceFetchOrchestrator::class)->fetch(
             self::PRODUCT_URL,
@@ -309,6 +333,174 @@ class PriceFetchOrchestratorTest extends TestCase
 
         $this->assertSame(PriceFetchStatus::Success, $result->status);
         $this->assertSame('seleniumbase', $result->engine);
+        $this->assertSame(['challenge', 'success'], array_column($result->attempts, 'status'));
+    }
+
+    public function test_http_429_is_rate_limited_instead_of_challenge(): void
+    {
+        Http::fake([
+            'price-extractor.test/extract' => Http::response([
+                'error' => 'Too many requests',
+            ], 429),
+        ]);
+
+        $result = resolve(RetailPriceExtractorClient::class)->fetchUrl(self::PRODUCT_URL);
+
+        $this->assertSame(PriceFetchStatus::RateLimited, $result->status);
+        $this->assertSame([
+            'kind' => 'rate_limited',
+            'retryable' => true,
+            'http_status' => 429,
+            'reason' => 'Too many requests',
+        ], $result->error);
+        $this->assertSame('rate_limited', $result->attempts[0]['status']);
+        $this->assertSame(429, $result->attempts[0]['http_status']);
+    }
+
+    public function test_http_200_with_captcha_evidence_is_still_a_challenge(): void
+    {
+        Http::fake([
+            'price-extractor.test/extract' => Http::response([
+                'error' => 'CAPTCHA verification required',
+                'blocked' => true,
+            ]),
+        ]);
+
+        $result = resolve(RetailPriceExtractorClient::class)->fetchUrl(self::PRODUCT_URL);
+
+        $this->assertSame(PriceFetchStatus::Challenge, $result->status);
+        $this->assertSame(200, $result->attempts[0]['http_status']);
+        $this->assertSame('CAPTCHA verification required', $result->error['reason']);
+    }
+
+    public function test_http_challenge_and_fallback_failure_preserve_both_attempts(): void
+    {
+        $store = $this->store('api');
+        Http::fake([
+            'price-extractor.test/extract' => Http::response([
+                'error' => 'CAPTCHA verification required',
+                'blocked' => true,
+            ], 409),
+        ]);
+
+        $result = resolve(PriceFetchOrchestrator::class)->fetch(
+            self::PRODUCT_URL,
+            $store,
+            fn (): array => [
+                'fetch_error' => [
+                    'kind' => 'network_error',
+                    'retryable' => true,
+                    'reason' => 'browser service unavailable',
+                ],
+            ],
+        );
+
+        $this->assertSame(PriceFetchStatus::NetworkError, $result->status);
+        $this->assertCount(2, $result->attempts);
+        $this->assertSame(['challenge', 'network_error'], array_column($result->attempts, 'status'));
+        $this->assertSame(['price_extractor', 'seleniumbase'], array_column($result->attempts, 'engine'));
+        $this->assertSame('browser service unavailable', $result->attempts[1]['error']['reason']);
+    }
+
+    public function test_fallback_network_exception_preserves_normalized_reason(): void
+    {
+        $store = $this->store('api');
+        config()->set('deal_hunter.price_extractor_url');
+
+        $result = resolve(PriceFetchOrchestrator::class)->fetch(
+            self::PRODUCT_URL,
+            $store,
+            fn (): never => throw new RuntimeException(' Browser service   connection refused token=super-secret '),
+        );
+
+        $this->assertSame(PriceFetchStatus::NetworkError, $result->status);
+        $this->assertSame('Browser service connection refused token=[redacted]', $result->error['reason']);
+        $this->assertSame('Browser service connection refused token=[redacted]', $result->attempts[1]['error']['reason']);
+    }
+
+    public function test_fallback_timeout_exception_preserves_normalized_reason(): void
+    {
+        $store = $this->store('api');
+        config()->set('deal_hunter.price_extractor_url');
+
+        $result = resolve(PriceFetchOrchestrator::class)->fetch(
+            self::PRODUCT_URL,
+            $store,
+            fn (): never => throw new RuntimeException(' Browser request   timed out after 35 seconds '),
+        );
+
+        $this->assertSame(PriceFetchStatus::Timeout, $result->status);
+        $this->assertSame('Browser request timed out after 35 seconds', $result->error['reason']);
+        $this->assertSame('Browser request timed out after 35 seconds', $result->attempts[1]['error']['reason']);
+    }
+
+    public function test_rejected_http_candidate_records_fallback_decision_without_changing_success_status(): void
+    {
+        $store = $this->store('api');
+        Http::fake([
+            'price-extractor.test/extract' => Http::response([
+                'data' => [
+                    'page_url' => self::PRODUCT_URL,
+                    'title' => 'AMD Ryzen 7 7700X3D',
+                    'availability' => 'in_stock',
+                    'candidates' => [[
+                        'price' => 159.99,
+                        'currency' => 'EUR',
+                        'source' => 'site_specific',
+                        'confidence' => 0.96,
+                    ]],
+                ],
+            ]),
+        ]);
+
+        $result = resolve(PriceFetchOrchestrator::class)->fetch(
+            self::PRODUCT_URL,
+            $store,
+            fn (): array => [
+                'store' => $store,
+                'title' => 'AMD Ryzen 7 7700X3D',
+                'price' => '149.99',
+                'availability' => 'InStock',
+                'errors' => [],
+            ],
+        );
+
+        $this->assertSame(PriceFetchStatus::Success, $result->status);
+        $this->assertCount(2, $result->attempts);
+        $this->assertSame('success', $result->attempts[0]['status']);
+        $this->assertNull($result->attempts[0]['error']);
+        $this->assertSame('candidate_rejected', $result->attempts[0]['decision']);
+        $this->assertSame('success', $result->attempts[1]['status']);
+    }
+
+    public function test_structured_fallback_uses_valid_rate_limit_status_when_kind_is_unknown(): void
+    {
+        $store = $this->store('http');
+        Http::fake([
+            'price-extractor.test/extract' => Http::response([
+                'error' => 'Too many requests',
+            ], 429),
+        ]);
+
+        $result = resolve(PriceFetchOrchestrator::class)->fetch(
+            self::PRODUCT_URL,
+            $store,
+            fn (): array => [
+                'fetch_error' => [
+                    'kind' => 'vendor_throttled',
+                    'status' => 'rate_limited',
+                    'retryable' => true,
+                    'http_status' => 429,
+                    'reason' => 'upstream quota exhausted',
+                ],
+            ],
+        );
+
+        $this->assertSame(PriceFetchStatus::RateLimited, $result->status);
+        $this->assertSame(['rate_limited', 'rate_limited'], array_column($result->attempts, 'status'));
+        $this->assertNotContains('challenge', array_column($result->attempts, 'status'));
+        $this->assertSame(429, $result->attempts[1]['http_status']);
+        $this->assertSame('upstream quota exhausted', $result->error['reason']);
     }
 
     public function test_invalid_partial_response_never_becomes_a_price_candidate(): void
@@ -334,7 +526,11 @@ class PriceFetchOrchestratorTest extends TestCase
 
         $this->assertSame(PriceFetchStatus::NoPrice, $result->status);
         $this->assertSame([], $result->candidates);
-        $this->assertSame(['kind' => 'no_price', 'retryable' => false], $result->error);
+        $this->assertSame([
+            'kind' => 'no_price',
+            'retryable' => false,
+            'http_status' => 200,
+        ], $result->error);
     }
 
     public function test_error_result_cannot_be_persisted_as_a_valid_price(): void

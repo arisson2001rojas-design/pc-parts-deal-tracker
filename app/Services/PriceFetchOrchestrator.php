@@ -59,6 +59,8 @@ class PriceFetchOrchestrator
                 expectedCurrency: $currency,
             );
         } catch (ValidationException) {
+            $this->markLatestAttemptDecision($result, 'candidate_rejected');
+
             return null;
         }
 
@@ -80,6 +82,8 @@ class PriceFetchOrchestrator
             latencyMs: $result->latencyMs,
             seller: $result->seller,
             pricesNormalized: $result->pricesNormalized,
+            httpStatus: $result->httpStatus,
+            attempts: $result->attempts,
         );
     }
 
@@ -96,9 +100,10 @@ class PriceFetchOrchestrator
         $rawErrors = is_array($payload['errors'] ?? null) ? array_values($payload['errors']) : [];
         $fetchError = is_array($payload['fetch_error'] ?? null) ? $payload['fetch_error'] : null;
         $notFound = (bool) ($payload[ScrapeUrl::NOT_FOUND_KEY] ?? false);
+        $httpStatus = $this->normalizedHttpStatus($payload['http_status'] ?? $fetchError['http_status'] ?? null);
 
         if ($fetchError !== null) {
-            $status = $this->statusForErrorKind((string) ($fetchError['kind'] ?? 'invalid_response'));
+            $status = $this->statusForFetchError($fetchError);
 
             return $this->fallbackFailure(
                 $status,
@@ -112,6 +117,8 @@ class PriceFetchOrchestrator
                 $startedAt,
                 (bool) ($fetchError['retryable'] ?? false),
                 $notFound,
+                $httpStatus,
+                $this->normalizedReason($fetchError['reason'] ?? null),
             );
         }
 
@@ -129,6 +136,8 @@ class PriceFetchOrchestrator
                 $startedAt,
                 true,
                 $notFound,
+                $httpStatus,
+                'challenge_detected',
             );
         }
         if ($rawErrors !== []) {
@@ -148,6 +157,8 @@ class PriceFetchOrchestrator
                 $startedAt,
                 $status === PriceFetchStatus::Timeout,
                 $notFound,
+                $httpStatus,
+                $status === PriceFetchStatus::Timeout ? 'fallback_timeout' : 'fallback_error',
             );
         }
 
@@ -166,6 +177,8 @@ class PriceFetchOrchestrator
                 $startedAt,
                 false,
                 $notFound,
+                $httpStatus,
+                'missing_price_or_title',
             );
         }
 
@@ -187,6 +200,7 @@ class PriceFetchOrchestrator
             latencyMs: $this->latencyMs($startedAt),
             body: $body,
             notFound: $notFound,
+            httpStatus: $httpStatus,
         );
     }
 
@@ -212,6 +226,7 @@ class PriceFetchOrchestrator
             [],
             $startedAt,
             true,
+            reason: $this->normalizedReason($exception->getMessage()),
         );
     }
 
@@ -228,7 +243,17 @@ class PriceFetchOrchestrator
         int $startedAt,
         bool $retryable,
         bool $notFound = false,
+        ?int $httpStatus = null,
+        ?string $reason = null,
     ): PriceFetchResult {
+        $error = ['kind' => $status->value, 'retryable' => $retryable];
+        if ($httpStatus !== null) {
+            $error['http_status'] = $httpStatus;
+        }
+        if ($reason !== null) {
+            $error['reason'] = $reason;
+        }
+
         return new PriceFetchResult(
             status: $status,
             source: 'store_strategy',
@@ -239,10 +264,11 @@ class PriceFetchOrchestrator
             availability: $availability,
             observedAt: new DateTimeImmutable,
             latencyMs: $this->latencyMs($startedAt),
-            error: ['kind' => $status->value, 'retryable' => $retryable],
+            error: $error,
             body: $body,
             rawErrors: $rawErrors,
             notFound: $notFound,
+            httpStatus: $httpStatus,
         );
     }
 
@@ -265,6 +291,8 @@ class PriceFetchOrchestrator
             rawErrors: $fallback->rawErrors,
             notFound: $fallback->notFound,
             pricesNormalized: $fallback->pricesNormalized,
+            httpStatus: $fallback->httpStatus,
+            attempts: [...$primary->attempts, ...$fallback->attempts],
         );
     }
 
@@ -286,9 +314,55 @@ class PriceFetchOrchestrator
         ]);
     }
 
-    private function statusForErrorKind(string $kind): PriceFetchStatus
+    /** @param array<string, mixed> $fetchError */
+    private function statusForFetchError(array $fetchError): PriceFetchStatus
     {
-        return PriceFetchStatus::tryFrom($kind) ?? PriceFetchStatus::InvalidResponse;
+        foreach (['kind', 'status'] as $key) {
+            $value = $fetchError[$key] ?? null;
+            if (is_string($value) && ($status = PriceFetchStatus::tryFrom($value)) !== null) {
+                return $status;
+            }
+        }
+
+        return PriceFetchStatus::InvalidResponse;
+    }
+
+    private function markLatestAttemptDecision(PriceFetchResult $result, string $decision): void
+    {
+        $index = array_key_last($result->attempts);
+        if ($index !== null) {
+            $result->attempts[$index]['decision'] = $decision;
+        }
+    }
+
+    private function normalizedHttpStatus(mixed $status): ?int
+    {
+        if (! is_numeric($status)) {
+            return null;
+        }
+
+        $status = (int) $status;
+
+        return $status >= 100 && $status <= 599 ? $status : null;
+    }
+
+    private function normalizedReason(mixed $reason): ?string
+    {
+        if (! is_string($reason)) {
+            return null;
+        }
+
+        $reason = preg_replace(
+            [
+                '/(\b(?:authorization|api[_-]?key|token|password|secret)\s*[:=]\s*)(?:bearer\s+)?[^,\s;]+/i',
+                '/\bbearer\s+[a-z0-9._~+\/=\-]+/i',
+                '/\s+/',
+            ],
+            ['$1[redacted]', 'Bearer [redacted]', ' '],
+            trim($reason),
+        );
+
+        return is_string($reason) && $reason !== '' ? Str::limit($reason, 160, '') : null;
     }
 
     private function nullableString(mixed $value): ?string

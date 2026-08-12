@@ -1,83 +1,54 @@
 # Codex State
 
-## Branch
+## Branch and base
 
-`codex/ui-stabilization`
+- Branch: `codex/fetch-observability`.
+- Known base: `3eb1777`.
+- PR #2 (UI stabilization and Newegg fixes) is merged into `main`.
 
-## Known base
+## Implemented milestones
 
-`a906796`
+- Browser Radar 0.4.1 with multi-retailer discovery and backend idempotency.
+- Browser Companion dedupe/in-flight protection.
+- Radar auto-track with `paused_by_user`, default 28,800-second refresh, and conservative scheduling.
+- First-discovery concurrency protection and preserved price history.
+- PC component catalog, builds, Deal Hunter, and stabilized admin UI.
+- PriceFetchOrchestrator with HTTP price-extractor first and existing SeleniumBase/store HTTP fallback.
+- PriceFetchResult/PriceFetchStatus common contract and canonical availability handling.
+- Amazon current-offer/title fixes and Newegg Buy New/stock extraction.
 
-## Upstream integration
+## Current milestone
 
-- Integrated `origin/main` at `cec656bae58dc686f4bd23e18a4cb5ead769d6ea`.
-- Resolved `Url.php` by combining URL normalization and upstream stock handling with PriceBuddy image, guard, dedupe, and history behavior.
-- Resolved `routes/api.php` as an additive union of Client Config, Browser Capture, Browser Discovery, and existing API routes.
-- Preserved upstream soft-404 semantics through `PriceFetchResult` to URL persistence.
-
-## Implemented
-
-- Radar 0.4.1 multi-retailer.
-- Amazon current-offer, variant, and title fixes.
-- Extended PC component classification.
-- Browser Companion dedupe and in-flight protection.
-- Radar auto-track.
-- `paused_by_user` support.
-- Default refresh interval of 28,800 seconds.
-- Conservative scheduling.
-- Backend BrowserDiscovery idempotency.
-- First-discovery concurrency fix.
-- PriceFetchOrchestrator.
-- HTTP price-extractor.
-- SeleniumBase fallback.
-- PriceFetchResult and PriceFetchStatus.
-- Canonical availability resolution fix.
-- UI stabilization for Dashboard, Products, PC Parts, PC Builds, Deal Hunter,
-  Tags, Stores, and Product Sources.
-- Responsive deal/component cards with stable image, title, metadata, price,
-  and action regions.
-- PC Build component-type filtering with server-side type validation.
-- Dashboard low-price counts now exclude flat or insufficient histories.
-- Product badges use warning, decision, and tracking priority.
-
-## UI conventions
-
-- Cards stack on mobile and keep price/actions visually distinct on desktop.
-- Product titles wrap to two lines and retain a full-title tooltip.
-- Charts appear only when comparable historical prices exist.
-- Empty lists explain the next action and expose one clear CTA.
-- User-facing PC shopping flows are Spanish; advanced upstream/system screens
-  remain a documented localization debt.
+- Structured price-fetch observability by attempt.
+- Explicit `rate_limited` status, separate from bot/CAPTCHA challenge.
+- Preserve HTTP and fallback attempt diagnostics, metadata, and total latency.
+- No new internal retries or change to fallback policy.
 
 ## Invariants
 
 - Do not activate the complete catalog.
-- A Product enters tracking only when relevant.
-- Preserve custom refresh intervals.
-- Radar visits must not postpone a future `next_check_at`.
-- An explicit user pause wins over automation.
-- Browser Radar does not force `favourite`.
+- Track a Product only when relevant.
+- Preserve custom refresh intervals and future `next_check_at` values.
+- Explicit user pause wins; Radar does not force `favourite`.
 - Browser discovery does not trigger immediate job fanout.
 - Preserve real price history.
+- Do not implement challenge evasion.
 
 ## Pending
 
-- Metrics and observability by engine and retailer.
-- Distinguish rate-limit HTTP 429 from challenge responses.
-- Preserve diagnostics for attempts and fallback decisions.
-- Evaluate Playwright only with supporting evidence.
-- Amazon seller cleanup.
-- Optimize `regenerate-price-cache`.
-- Deal Score and historical comparison later.
-- Complete localization of upstream System, Settings, Search, and core actions.
-- Final visual acceptance pass on the supported desktop/tablet/mobile widths.
+- Aggregate metrics by engine and retailer using the structured attempts.
+- Decide durable retention/export for diagnostics; attempts currently travel with the fetch result.
+- Evaluate Playwright only with evidence from failure metrics.
+- Amazon seller cleanup and `regenerate-price-cache` optimization.
+- Deal Score and historical cross-retailer comparison.
+- Complete localization of advanced upstream/system screens.
 
 ## Risks
 
-- Backend dedupe window is 300 seconds.
+- Backend discovery dedupe window remains 300 seconds.
 - Pauses created before `paused_by_user` have no recorded provenance.
-- The UI stabilization working tree remains uncommitted pending visual review.
+- Attempt diagnostics are request-scoped until a later observability sink is approved.
 
 ## Next exact action
 
-Complete the manual visual review, then prepare the UI milestone checkpoint.
+Validate this milestone, review its diff, then request authorization for commit/push/PR.
