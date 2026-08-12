@@ -384,4 +384,31 @@ HTML),
             ], $strategy)
         );
     }
+
+    public function test_unknown_availability_is_neutral_for_normalized_and_raw_values(): void
+    {
+        $strategy = $this->store->scrape_strategy->availability;
+
+        $this->assertNull(ScrapeUrl::resolveStockStatus([
+            'availability' => 'unknown',
+            'availability_normalized' => true,
+        ], $strategy));
+        $this->assertNull(ScrapeUrl::resolveStockStatus(['availability' => 'unknown'], $strategy));
+        $this->assertNull(ScrapeUrl::resolveStockStatus(['availability' => ' UNKNOWN '], $strategy));
+        $this->assertSame(
+            StockStatus::OutOfStock,
+            ScrapeUrl::resolveStockStatus(['availability' => 'out_of_stock'], $strategy),
+        );
+        $this->assertSame(
+            StockStatus::InStock,
+            ScrapeUrl::resolveStockStatus(['availability' => 'in_stock'], $strategy),
+        );
+        $this->assertSame(
+            StockStatus::Discontinued,
+            ScrapeUrl::resolveStockStatus([
+                'availability' => 'unknown',
+                ScrapeUrl::NOT_FOUND_KEY => true,
+            ], $strategy),
+        );
+    }
 }

@@ -15,6 +15,7 @@ class Candidate:
     currency: str
     source: str
     confidence: float
+    raw_amount: str
 
 
 SITE_SELECTORS: dict[str, tuple[str, ...]] = {
@@ -64,6 +65,11 @@ def _domain_for(host: str) -> str | None:
 
 def _currency(raw: str, hint: str | None = None) -> str:
     value = raw.upper()
+    for currency in ("CRC", "USD", "CAD", "AUD", "EUR", "GBP"):
+        if re.match(rf"^\s*{currency}\s*[+-]?\d", value) or re.search(
+            rf"\d\s*{currency}\s*$", value
+        ):
+            return currency
     if "₡" in raw or re.search(r"\bCRC\b", value):
         return "CRC"
     if "US$" in value or re.search(r"\bUSD\b", value):
@@ -214,7 +220,7 @@ def _add(
     price = _number(text)
     if price is None:
         return
-    candidate = Candidate(price, _currency(text, currency_hint), source, confidence)
+    candidate = Candidate(price, _currency(text, currency_hint), source, confidence, text[:128])
     if candidate not in candidates:
         candidates.append(candidate)
 

@@ -80,6 +80,16 @@ class ExtractorTest(unittest.TestCase):
         self.assertEqual('CRC', result['candidates'][0]['currency'])
         self.assertEqual(149361.46, result['candidates'][0]['price'])
 
+    def test_adjacent_iso_currency_and_bounded_raw_amount_are_preserved(self):
+        result = extract_document(
+            '<h1>Samsung 870 QVO 8TB</h1><div class="priceToPay"><span class="a-offscreen">CRC672,300.26</span></div>',
+            'https://www.amazon.com/dp/B089C3TZL9',
+        )
+
+        self.assertEqual('CRC', result['candidates'][0]['currency'])
+        self.assertEqual(672300.26, result['candidates'][0]['price'])
+        self.assertEqual('CRC672,300.26', result['candidates'][0]['raw_amount'])
+
 
 if __name__ == '__main__':
     unittest.main()

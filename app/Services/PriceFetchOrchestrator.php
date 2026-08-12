@@ -53,13 +53,56 @@ class PriceFetchOrchestrator
         }
 
         $currency = strtoupper((string) ($store->currency ?: 'USD'));
+        $selectorCandidates = [];
+        $detectedCurrencies = [];
+        $hasExpectedCurrency = false;
+        $hasInvalidCurrencyToken = false;
+
+        foreach ($result->candidates as $candidate) {
+            $rawCurrencyToken = CurrencyHelper::detectExplicitCurrencyToken($candidate['raw_amount'] ?? null);
+            $rawCurrency = CurrencyHelper::normalizeCurrencyCode($rawCurrencyToken);
+            $candidateCurrency = CurrencyHelper::normalizeCurrencyCode($candidate['currency']);
+            if ($rawCurrencyToken !== null && $rawCurrency === null) {
+                $hasInvalidCurrencyToken = true;
+
+                continue;
+            }
+            if ($rawCurrency !== null && $rawCurrency !== $currency) {
+                $detectedCurrencies[] = $rawCurrency;
+
+                continue;
+            }
+            if ($candidateCurrency !== null && $candidateCurrency !== $currency) {
+                $detectedCurrencies[] = $candidateCurrency;
+
+                continue;
+            }
+
+            $hasExpectedCurrency = $hasExpectedCurrency || $candidateCurrency === $currency;
+            $selectorCandidates[] = [
+                'price' => $candidate['amount'],
+                'currency' => $candidate['currency'],
+                'confidence' => $candidate['confidence'],
+                'source' => $candidate['evidence'],
+            ];
+        }
+
         try {
             $winner = $this->candidateSelector->select(
-                $result->toSelectorCandidates(),
+                $selectorCandidates,
                 expectedCurrency: $currency,
             );
         } catch (ValidationException) {
-            $this->markLatestAttemptDecision($result, 'candidate_rejected');
+            $detectedCurrencies = array_values(array_unique($detectedCurrencies));
+            $decision = $hasInvalidCurrencyToken
+                ? 'invalid_currency_token'
+                : (! $hasExpectedCurrency && $detectedCurrencies !== [] ? 'currency_mismatch' : 'candidate_rejected');
+            $this->markLatestAttemptDecision(
+                $result,
+                $decision,
+                expectedCurrency: $currency,
+                detectedCurrency: count($detectedCurrencies) === 1 ? $detectedCurrencies[0] : null,
+            );
 
             return null;
         }
@@ -84,6 +127,7 @@ class PriceFetchOrchestrator
             pricesNormalized: $result->pricesNormalized,
             httpStatus: $result->httpStatus,
             attempts: $result->attempts,
+            availabilityNormalized: $result->availabilityNormalized,
         );
     }
 
@@ -171,7 +215,7 @@ class PriceFetchOrchestrator
         );
         if ($title === null || $rawPrice === null || $rawPrice === '' || $priceParse['amount'] === null) {
             $failure = $this->fallbackFailure(
-                $priceParse['decision'] === 'locale_mismatch'
+                in_array($priceParse['decision'], ['locale_mismatch', 'currency_mismatch', 'invalid_currency_token'], true)
                     ? PriceFetchStatus::InvalidResponse
                     : PriceFetchStatus::NoPrice,
                 $url,
@@ -185,7 +229,13 @@ class PriceFetchOrchestrator
                 false,
                 $notFound,
                 $httpStatus,
-                $priceParse['decision'] === 'locale_mismatch' ? 'locale_mismatch' : 'missing_price_or_title',
+                in_array($priceParse['decision'], ['locale_mismatch', 'currency_mismatch', 'invalid_currency_token'], true)
+                    ? $priceParse['decision']
+                    : 'missing_price_or_title',
+                array_filter([
+                    'expected_currency' => $priceParse['expected_currency'] ?? null,
+                    'detected_currency' => $priceParse['detected_currency'] ?? null,
+                ]),
             );
 
             $this->markLatestAttemptParsing($failure, $priceParse);
@@ -262,8 +312,9 @@ class PriceFetchOrchestrator
         bool $notFound = false,
         ?int $httpStatus = null,
         ?string $reason = null,
+        array $errorMetadata = [],
     ): PriceFetchResult {
-        $error = ['kind' => $status->value, 'retryable' => $retryable];
+        $error = [...['kind' => $status->value, 'retryable' => $retryable], ...$errorMetadata];
         if ($httpStatus !== null) {
             $error['http_status'] = $httpStatus;
         }
@@ -291,6 +342,8 @@ class PriceFetchOrchestrator
 
     private function mergeMetadata(PriceFetchResult $primary, PriceFetchResult $fallback): PriceFetchResult
     {
+        [$availability, $availabilityNormalized] = $this->preferredAvailability($fallback, $primary);
+
         return new PriceFetchResult(
             status: $fallback->status,
             source: $fallback->source,
@@ -298,7 +351,7 @@ class PriceFetchOrchestrator
             finalUrl: $fallback->finalUrl,
             title: $fallback->title ?? $primary->title,
             image: $fallback->image ?? $primary->image,
-            availability: $this->preferredAvailability($fallback->availability, $primary->availability),
+            availability: $availability,
             candidates: $fallback->candidates,
             observedAt: $fallback->observedAt,
             latencyMs: $primary->latencyMs + $fallback->latencyMs,
@@ -306,16 +359,26 @@ class PriceFetchOrchestrator
             seller: $fallback->seller ?? $primary->seller,
             body: $fallback->body,
             rawErrors: $fallback->rawErrors,
-            notFound: $fallback->notFound,
+            notFound: $fallback->notFound
+                || ($fallback->status !== PriceFetchStatus::Success && $primary->notFound),
             pricesNormalized: $fallback->pricesNormalized,
             httpStatus: $fallback->httpStatus,
             attempts: [...$primary->attempts, ...$fallback->attempts],
+            availabilityNormalized: $availabilityNormalized,
         );
     }
 
-    private function preferredAvailability(?string $fallback, ?string $primary): ?string
+    /** @return array{?string, bool} */
+    private function preferredAvailability(PriceFetchResult $fallback, PriceFetchResult $primary): array
     {
-        return $fallback !== null && $fallback !== 'unknown' ? $fallback : ($primary ?? $fallback);
+        if ($fallback->availability !== null && $fallback->availability !== 'unknown') {
+            return [$fallback->availability, $fallback->availabilityNormalized];
+        }
+        if ($primary->availability !== null) {
+            return [$primary->availability, $primary->availabilityNormalized];
+        }
+
+        return [$fallback->availability, $fallback->availabilityNormalized];
     }
 
     private function looksLikeChallenge(string $text): bool
@@ -344,18 +407,28 @@ class PriceFetchOrchestrator
         return PriceFetchStatus::InvalidResponse;
     }
 
-    private function markLatestAttemptDecision(PriceFetchResult $result, string $decision): void
-    {
+    private function markLatestAttemptDecision(
+        PriceFetchResult $result,
+        string $decision,
+        ?string $expectedCurrency = null,
+        ?string $detectedCurrency = null,
+    ): void {
         $index = array_key_last($result->attempts);
         if ($index !== null) {
             $result->attempts[$index]['decision'] = $decision;
+            if ($expectedCurrency !== null) {
+                $result->attempts[$index]['expected_currency'] = $expectedCurrency;
+            }
+            if ($detectedCurrency !== null) {
+                $result->attempts[$index]['detected_currency'] = $detectedCurrency;
+            }
         }
     }
 
-    /** @param array{amount: ?float, locale: ?string, decision: string} $priceParse */
+    /** @param array{amount: ?float, locale: ?string, decision: string, expected_currency?: string, detected_currency?: string} $priceParse */
     private function markLatestAttemptParsing(PriceFetchResult $result, array $priceParse): void
     {
-        if (! in_array($priceParse['decision'], ['locale_fallback', 'locale_mismatch'], true)) {
+        if (! in_array($priceParse['decision'], ['locale_fallback', 'locale_mismatch', 'currency_mismatch', 'invalid_currency_token'], true)) {
             return;
         }
 
@@ -367,6 +440,12 @@ class PriceFetchOrchestrator
         $result->attempts[$index]['decision'] = $priceParse['decision'];
         if ($priceParse['locale'] !== null) {
             $result->attempts[$index]['parse_locale'] = $priceParse['locale'];
+        }
+        if (isset($priceParse['expected_currency'])) {
+            $result->attempts[$index]['expected_currency'] = $priceParse['expected_currency'];
+        }
+        if (isset($priceParse['detected_currency'])) {
+            $result->attempts[$index]['detected_currency'] = $priceParse['detected_currency'];
         }
     }
 

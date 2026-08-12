@@ -148,6 +148,7 @@ class RetailPriceExtractorClient
             seller: $seller,
             pricesNormalized: true,
             httpStatus: $response->status(),
+            availabilityNormalized: true,
         );
     }
 
@@ -166,6 +167,9 @@ class RetailPriceExtractorClient
         $blocked = $response->json('blocked') === true;
         $statusCode = $response->status();
 
+        $kind = null;
+        $notFound = false;
+
         if ($statusCode === 429) {
             $status = PriceFetchStatus::RateLimited;
             $retryable = true;
@@ -175,11 +179,16 @@ class RetailPriceExtractorClient
             $status = PriceFetchStatus::Challenge;
             $retryable = true;
         } elseif (in_array($statusCode, [408, 504], true) || $this->isTimeout($error)) {
-            $status = PriceFetchStatus::Timeout;
+            $status = PriceFetchStatus::NetworkError;
             $retryable = true;
         } elseif ($statusCode === 422 && Str::contains($error, ['no reliable', 'no price'])) {
             $status = PriceFetchStatus::NoPrice;
             $retryable = false;
+        } elseif ($statusCode === 404 || $response->json('not_found') === true) {
+            $status = PriceFetchStatus::NoPrice;
+            $retryable = false;
+            $kind = 'not_found';
+            $notFound = true;
         } elseif ($statusCode >= 500) {
             $status = PriceFetchStatus::NetworkError;
             $retryable = true;
@@ -191,7 +200,7 @@ class RetailPriceExtractorClient
         return $this->failure(
             $finalUrl,
             $status,
-            $status->value,
+            $kind ?? $status->value,
             $retryable,
             $startedAt,
             title: $title,
@@ -200,11 +209,12 @@ class RetailPriceExtractorClient
             seller: $seller,
             httpStatus: $statusCode,
             reason: $reason,
+            notFound: $notFound,
         );
     }
 
     /**
-     * @return list<array{amount: float, currency: string, confidence: float, evidence: string}>
+     * @return list<array{amount: float, currency: string, confidence: float, evidence: string, raw_amount?: string}>
      */
     private function normalizeCandidates(mixed $rawCandidates): array
     {
@@ -224,12 +234,17 @@ class RetailPriceExtractorClient
                 continue;
             }
 
-            $candidates[] = [
+            $normalized = [
                 'amount' => $amount,
                 'currency' => $currency,
                 'confidence' => (float) max(0, min(1, (float) ($candidate['confidence'] ?? 0))),
                 'evidence' => trim((string) ($candidate['source'] ?? 'unknown')) ?: 'unknown',
             ];
+            if (is_string($candidate['raw_amount'] ?? null) && trim($candidate['raw_amount']) !== '') {
+                $normalized['raw_amount'] = Str::limit(trim($candidate['raw_amount']), 128, '');
+            }
+
+            $candidates[] = $normalized;
         }
 
         return $candidates;
@@ -247,6 +262,7 @@ class RetailPriceExtractorClient
         ?string $seller = null,
         ?int $httpStatus = null,
         ?string $reason = null,
+        bool $notFound = false,
     ): PriceFetchResult {
         return new PriceFetchResult(
             status: $status,
@@ -260,7 +276,9 @@ class RetailPriceExtractorClient
             latencyMs: $this->latencyMs($startedAt),
             error: $this->errorPayload($kind, $retryable, $httpStatus, $reason),
             seller: $seller,
+            notFound: $notFound,
             httpStatus: $httpStatus,
+            availabilityNormalized: true,
         );
     }
 

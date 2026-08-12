@@ -116,7 +116,7 @@ class MetaExtractionService
         $isUnavailable = ScrapeUrl::resolveStockStatus(
             $rawScrapeResult,
             $store->scrape_strategy->availability,
-        )->isUnavailable();
+        )?->isUnavailable() ?? false;
 
         return $isUnavailable ? HealingReason::NotNeeded : null;
     }

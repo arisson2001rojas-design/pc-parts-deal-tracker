@@ -58,7 +58,7 @@ class AiScrapeEnhancer
         // An out-of-stock item has no purchasable price; don't spend tokens.
         $availabilityStrategy = data_get($store, 'scrape_strategy.availability');
         $isUnavailable = ScrapeUrl::resolveStockStatus($scrapeResult, $availabilityStrategy)
-            ->isUnavailable();
+            ?->isUnavailable() ?? false;
 
         if ($isUnavailable) {
             return $scrapeResult;

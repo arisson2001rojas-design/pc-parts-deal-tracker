@@ -81,7 +81,7 @@ class CurrencyHelper
      * Parse a raw retailer price without guessing between conflicting locale
      * interpretations. The fallback locale is opt-in and source-specific.
      *
-     * @return array{amount: ?float, locale: ?string, decision: string}
+     * @return array{amount: ?float, locale: ?string, decision: string, expected_currency?: string, detected_currency?: string}
      */
     public static function parsePrice(
         mixed $value,
@@ -102,6 +102,28 @@ class CurrencyHelper
 
         if (! is_string($value)) {
             return ['amount' => null, 'locale' => null, 'decision' => 'invalid'];
+        }
+
+        $expectedCurrency = self::normalizeCurrencyCode($iso);
+        $currencyToken = self::detectExplicitCurrencyToken($value);
+        $detectedCurrency = self::normalizeCurrencyCode($currencyToken);
+        if ($currencyToken !== null && $detectedCurrency === null) {
+            return [
+                'amount' => null,
+                'locale' => null,
+                'decision' => 'invalid_currency_token',
+            ];
+        }
+        if ($expectedCurrency !== null
+            && $detectedCurrency !== null
+            && $detectedCurrency !== $expectedCurrency) {
+            return [
+                'amount' => null,
+                'locale' => null,
+                'decision' => 'currency_mismatch',
+                'expected_currency' => $expectedCurrency,
+                'detected_currency' => $detectedCurrency,
+            ];
         }
 
         $token = (string) preg_replace('/[^\d\.\,]/', '', $value);
@@ -134,6 +156,51 @@ class CurrencyHelper
         }
 
         return ['amount' => null, 'locale' => null, 'decision' => 'locale_mismatch'];
+    }
+
+    /**
+     * Detect an explicit ISO currency only when the whole value is price-shaped.
+     * Symbols such as "$" remain intentionally ambiguous.
+     */
+    public static function detectExplicitCurrency(mixed $value): ?string
+    {
+        return self::normalizeCurrencyCode(self::detectExplicitCurrencyToken($value));
+    }
+
+    /**
+     * Detect an alphabetic token only when the whole value is price-shaped.
+     * This lets callers reject lookalikes such as USDC without scanning prose.
+     */
+    public static function detectExplicitCurrencyToken(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+        foreach ([
+            '/^([\p{L}]+)\s*[+-]?\d[\d\s.,]*$/u',
+            '/^[+-]?\d[\d\s.,]*\s*([\p{L}]+)$/u',
+        ] as $pattern) {
+            if (preg_match($pattern, $value, $matches) === 1) {
+                return strtoupper($matches[1]);
+            }
+        }
+
+        return null;
+    }
+
+    public static function normalizeCurrencyCode(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $currency = strtoupper(trim($value));
+
+        return preg_match('/^[A-Z]{3}$/', $currency) === 1 && Currencies::exists($currency)
+            ? $currency
+            : null;
     }
 
     private static function parseExactForLocale(string $value, string $locale, string $iso): ?float

@@ -129,7 +129,7 @@ class AiConfigHealer
 
         $availabilityStrategy = data_get($store, 'scrape_strategy.availability');
         $isUnavailable = ScrapeUrl::resolveStockStatus($scrapeResult, $availabilityStrategy)
-            ->isUnavailable();
+            ?->isUnavailable() ?? false;
 
         if ($isUnavailable) {
             return $scrapeResult;

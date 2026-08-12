@@ -177,7 +177,7 @@ class ScrapeUrl
         }
 
         $availabilityStrategy = data_get($output, 'store.scrape_strategy.availability');
-        $isUnavailable = self::resolveStockStatus($output, $availabilityStrategy)->isUnavailable();
+        $isUnavailable = self::resolveStockStatus($output, $availabilityStrategy)?->isUnavailable() ?? false;
 
         foreach (['price', 'title'] as $required) {
             // Skip price requirement when product is unavailable.
@@ -366,13 +366,18 @@ class ScrapeUrl
      *
      * @param  array<string, mixed>|null  $scrapeResult
      */
-    public static function resolveStockStatus(?array $scrapeResult, ?AvailabilityStrategyDto $availabilityStrategy): StockStatus
+    public static function resolveStockStatus(?array $scrapeResult, ?AvailabilityStrategyDto $availabilityStrategy): ?StockStatus
     {
         if (data_get($scrapeResult, self::NOT_FOUND_KEY)) {
             return StockStatus::Discontinued;
         }
 
-        return StockStatus::resolveAvailability(data_get($scrapeResult, 'availability'), $availabilityStrategy);
+        $availability = data_get($scrapeResult, 'availability');
+        if (is_string($availability) && strtolower(trim($availability)) === 'unknown') {
+            return null;
+        }
+
+        return StockStatus::resolveAvailability($availability, $availabilityStrategy);
     }
 
     public function getStore(): ?Store

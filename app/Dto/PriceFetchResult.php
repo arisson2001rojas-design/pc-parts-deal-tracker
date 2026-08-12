@@ -17,9 +17,9 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
 {
     /**
      * @param  list<array{amount: int|float|string, currency: string, confidence: float, evidence: string, raw_amount?: int|float|string}>  $candidates
-     * @param  array{kind: string, retryable: bool, http_status?: int, reason?: string}|null  $error
+     * @param  array{kind: string, retryable: bool, http_status?: int, reason?: string, expected_currency?: string, detected_currency?: string}|null  $error
      * @param  list<mixed>  $rawErrors
-     * @param  list<array{engine: string, source: string, status: string, latency_ms: int, final_url: string, error: array<string, mixed>|null, observed_at: string, http_status?: int, decision?: string, parse_locale?: string}>  $attempts
+     * @param  list<array{engine: string, source: string, status: string, latency_ms: int, final_url: string, error: array<string, mixed>|null, observed_at: string, http_status?: int, decision?: string, parse_locale?: string, expected_currency?: string, detected_currency?: string}>  $attempts
      */
     public function __construct(
         public PriceFetchStatus $status,
@@ -40,6 +40,7 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
         public bool $pricesNormalized = false,
         public ?int $httpStatus = null,
         public array $attempts = [],
+        public bool $availabilityNormalized = false,
     ) {
         if ($this->attempts === []) {
             $this->attempts = [$this->toAttemptArray()];
@@ -73,6 +74,7 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
             'currency' => $candidate['currency'] ?? null,
             'image' => $this->image,
             'availability' => $this->availability,
+            'availability_normalized' => $this->availabilityNormalized,
             'observed_at' => $this->observedAt->format(DATE_ATOM),
             'latency_ms' => $this->latencyMs,
             'attempts' => $this->attempts,
@@ -151,6 +153,7 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
             'title' => $this->title,
             'image' => $this->image,
             'availability' => $this->availability,
+            'availabilityNormalized' => $this->availabilityNormalized,
             'candidates' => $this->candidates,
             'observedAt' => $this->observedAt->format(DATE_ATOM),
             'latencyMs' => $this->latencyMs,
@@ -163,7 +166,7 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
     }
 
     /**
-     * @return array{engine: string, source: string, status: string, latency_ms: int, final_url: string, error: array<string, mixed>|null, observed_at: string, http_status?: int, decision?: string, parse_locale?: string}
+     * @return array{engine: string, source: string, status: string, latency_ms: int, final_url: string, error: array<string, mixed>|null, observed_at: string, http_status?: int, decision?: string, parse_locale?: string, expected_currency?: string, detected_currency?: string}
      */
     private function toAttemptArray(): array
     {
