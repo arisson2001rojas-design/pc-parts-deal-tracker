@@ -77,6 +77,97 @@ class CurrencyHelper
         }
     }
 
+    /**
+     * Parse a raw retailer price without guessing between conflicting locale
+     * interpretations. The fallback locale is opt-in and source-specific.
+     *
+     * @return array{amount: ?float, locale: ?string, decision: string}
+     */
+    public static function parsePrice(
+        mixed $value,
+        ?string $locale = null,
+        ?string $iso = null,
+        ?string $fallbackLocale = null,
+    ): array {
+        $iso = $iso ?? self::getCurrency();
+        $locale = $locale ?? self::getLocale();
+
+        if ((is_int($value) || is_float($value)) && is_finite((float) $value) && (float) $value > 0) {
+            return [
+                'amount' => (float) $value,
+                'locale' => null,
+                'decision' => 'numeric',
+            ];
+        }
+
+        if (! is_string($value)) {
+            return ['amount' => null, 'locale' => null, 'decision' => 'invalid'];
+        }
+
+        $token = (string) preg_replace('/[^\d\.\,]/', '', $value);
+        if ($token === '') {
+            return ['amount' => null, 'locale' => null, 'decision' => 'invalid'];
+        }
+
+        $primary = self::parseExactForLocale($token, $locale, $iso);
+        $fallbackLocale = self::normalizeLocale($fallbackLocale);
+        $locale = self::normalizeLocale($locale) ?? $locale;
+
+        if ($fallbackLocale === null || $fallbackLocale === $locale) {
+            return $primary === null
+                ? ['amount' => null, 'locale' => null, 'decision' => 'invalid']
+                : ['amount' => $primary, 'locale' => $locale, 'decision' => 'primary_locale'];
+        }
+
+        $fallback = self::parseExactForLocale($token, $fallbackLocale, $iso);
+
+        if ($primary === null && $fallback === null) {
+            return ['amount' => null, 'locale' => null, 'decision' => 'invalid'];
+        }
+
+        if ($primary === null) {
+            return ['amount' => $fallback, 'locale' => $fallbackLocale, 'decision' => 'locale_fallback'];
+        }
+
+        if ($fallback === null || $primary === $fallback) {
+            return ['amount' => $primary, 'locale' => $locale, 'decision' => 'primary_locale'];
+        }
+
+        return ['amount' => null, 'locale' => null, 'decision' => 'locale_mismatch'];
+    }
+
+    private static function parseExactForLocale(string $value, string $locale, string $iso): ?float
+    {
+        try {
+            $formatter = new NumberFormatter($locale, NumberFormatter::DECIMAL);
+            $formatter->setAttribute(NumberFormatter::LENIENT_PARSE, 0);
+            $position = 0;
+            $parsed = $formatter->parse($value, NumberFormatter::TYPE_DOUBLE, $position);
+
+            if ($parsed === false || $position !== strlen($value)) {
+                return null;
+            }
+
+            $amount = (float) $parsed;
+            if (! is_finite($amount) || $amount <= 0) {
+                return null;
+            }
+
+            return round($amount, Currencies::getFractionDigits($iso));
+        } catch (Exception) {
+            return null;
+        }
+    }
+
+    private static function normalizeLocale(?string $locale): ?string
+    {
+        if (! is_string($locale) || trim($locale) === '') {
+            return null;
+        }
+
+        return str_replace('-', '_', trim($locale));
+    }
+
     public static function toString(mixed $value, int $maxPrecision = 2, ?string $locale = null, ?string $iso = null): string
     {
         return Number::currency(

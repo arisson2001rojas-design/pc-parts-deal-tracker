@@ -163,10 +163,17 @@ class PriceFetchOrchestrator
         }
 
         $rawPrice = $payload['price'] ?? null;
-        $price = CurrencyHelper::toFloat($rawPrice, locale: $store->locale, iso: $store->currency);
-        if ($title === null || $rawPrice === null || $rawPrice === '' || $price <= 0) {
-            return $this->fallbackFailure(
-                PriceFetchStatus::NoPrice,
+        $priceParse = CurrencyHelper::parsePrice(
+            $rawPrice,
+            locale: $store->locale,
+            iso: $store->currency,
+            fallbackLocale: $store->price_locale_fallback,
+        );
+        if ($title === null || $rawPrice === null || $rawPrice === '' || $priceParse['amount'] === null) {
+            $failure = $this->fallbackFailure(
+                $priceParse['decision'] === 'locale_mismatch'
+                    ? PriceFetchStatus::InvalidResponse
+                    : PriceFetchStatus::NoPrice,
                 $url,
                 $engine,
                 $title,
@@ -178,11 +185,15 @@ class PriceFetchOrchestrator
                 false,
                 $notFound,
                 $httpStatus,
-                'missing_price_or_title',
+                $priceParse['decision'] === 'locale_mismatch' ? 'locale_mismatch' : 'missing_price_or_title',
             );
+
+            $this->markLatestAttemptParsing($failure, $priceParse);
+
+            return $failure;
         }
 
-        return new PriceFetchResult(
+        $result = new PriceFetchResult(
             status: PriceFetchStatus::Success,
             source: 'store_strategy',
             engine: $engine,
@@ -191,7 +202,8 @@ class PriceFetchOrchestrator
             image: $image,
             availability: $availability,
             candidates: [[
-                'amount' => is_int($rawPrice) || is_float($rawPrice) || is_string($rawPrice) ? $rawPrice : $price,
+                'amount' => $priceParse['amount'],
+                'raw_amount' => $rawPrice,
                 'currency' => strtoupper((string) ($store->currency ?: 'USD')),
                 'confidence' => 1.0,
                 'evidence' => 'store_strategy',
@@ -200,8 +212,13 @@ class PriceFetchOrchestrator
             latencyMs: $this->latencyMs($startedAt),
             body: $body,
             notFound: $notFound,
+            pricesNormalized: true,
             httpStatus: $httpStatus,
         );
+
+        $this->markLatestAttemptParsing($result, $priceParse);
+
+        return $result;
     }
 
     private function fromFallbackException(
@@ -332,6 +349,24 @@ class PriceFetchOrchestrator
         $index = array_key_last($result->attempts);
         if ($index !== null) {
             $result->attempts[$index]['decision'] = $decision;
+        }
+    }
+
+    /** @param array{amount: ?float, locale: ?string, decision: string} $priceParse */
+    private function markLatestAttemptParsing(PriceFetchResult $result, array $priceParse): void
+    {
+        if (! in_array($priceParse['decision'], ['locale_fallback', 'locale_mismatch'], true)) {
+            return;
+        }
+
+        $index = array_key_last($result->attempts);
+        if ($index === null) {
+            return;
+        }
+
+        $result->attempts[$index]['decision'] = $priceParse['decision'];
+        if ($priceParse['locale'] !== null) {
+            $result->attempts[$index]['parse_locale'] = $priceParse['locale'];
         }
     }
 

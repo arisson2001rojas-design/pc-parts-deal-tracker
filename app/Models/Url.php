@@ -490,12 +490,39 @@ class Url extends Model
             return null;
         }
 
+        $normalizedPrice = data_get($scrapeResult, 'normalized_price', $price);
         $hasNormalizedPrice = data_get($scrapeResult, 'price_normalized') === true
-            && (is_int($price) || is_float($price))
-            && is_finite((float) $price);
-        $priceFloat = $hasNormalizedPrice
-            ? (float) $price
-            : CurrencyHelper::toFloat($price, locale: $this->store?->locale, iso: $this->store?->currency);
+            && (is_int($normalizedPrice) || is_float($normalizedPrice))
+            && is_finite((float) $normalizedPrice);
+        $priceParse = $hasNormalizedPrice ? null : CurrencyHelper::parsePrice(
+            $price,
+            locale: $this->store?->locale,
+            iso: $this->store?->currency,
+            fallbackLocale: $this->store?->price_locale_fallback,
+        );
+
+        if ($priceParse !== null && $priceParse['amount'] === null) {
+            Log::channel('db')->warning('Rejected an ambiguous or invalid retailer price', [
+                'url_id' => $this->getKey(),
+                'store_id' => $this->store_id,
+                'decision' => $priceParse['decision'],
+                'primary_locale' => $this->store?->locale,
+                'fallback_locale' => $this->store?->price_locale_fallback,
+            ]);
+
+            return null;
+        }
+
+        if ($priceParse !== null && $priceParse['decision'] === 'locale_fallback') {
+            Log::channel('db')->info('Recovered retailer price with fallback locale', [
+                'url_id' => $this->getKey(),
+                'store_id' => $this->store_id,
+                'decision' => $priceParse['decision'],
+                'parse_locale' => $priceParse['locale'],
+            ]);
+        }
+
+        $priceFloat = $hasNormalizedPrice ? (float) $normalizedPrice : $priceParse['amount'];
         $currency = $this->store->currency ?? CurrencyHelper::getCurrency();
         $product = $this->product;
 

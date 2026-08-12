@@ -4,6 +4,7 @@ namespace Tests\Unit\Services;
 
 use App\Services\Helpers\CurrencyHelper;
 use App\Services\Helpers\SettingsHelper;
+use Database\Seeders\StoreSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -134,6 +135,64 @@ class CurrencyHelperTest extends TestCase
     public function test_to_float_handles_non_numeric_string()
     {
         $this->assertEquals(0.0, CurrencyHelper::toFloat('abc'));
+    }
+
+    public function test_strict_price_parser_handles_us_thousands_format(): void
+    {
+        $result = CurrencyHelper::parsePrice('$1,479.99', locale: 'en_US', iso: 'USD');
+
+        $this->assertSame(1479.99, $result['amount']);
+        $this->assertSame('en_US', $result['locale']);
+        $this->assertSame('primary_locale', $result['decision']);
+    }
+
+    public function test_strict_price_parser_recovers_with_explicit_locale_fallback(): void
+    {
+        $result = CurrencyHelper::parsePrice(
+            '$1,479.99',
+            locale: 'es',
+            iso: 'USD',
+            fallbackLocale: 'en_US',
+        );
+
+        $this->assertSame(1479.99, $result['amount']);
+        $this->assertSame('en_US', $result['locale']);
+        $this->assertSame('locale_fallback', $result['decision']);
+    }
+
+    public function test_strict_price_parser_handles_explicit_european_locale(): void
+    {
+        foreach (['es', 'de_DE'] as $locale) {
+            $result = CurrencyHelper::parsePrice('1.479,99 €', locale: $locale, iso: 'EUR');
+
+            $this->assertSame(1479.99, $result['amount']);
+            $this->assertSame('primary_locale', $result['decision']);
+        }
+    }
+
+    public function test_strict_price_parser_rejects_ambiguous_locale_interpretations(): void
+    {
+        $result = CurrencyHelper::parsePrice(
+            '1,479',
+            locale: 'es',
+            iso: 'USD',
+            fallbackLocale: 'en_US',
+        );
+
+        $this->assertNull($result['amount']);
+        $this->assertNull($result['locale']);
+        $this->assertSame('locale_mismatch', $result['decision']);
+    }
+
+    public function test_us_retailer_seeds_define_price_locale_without_changing_app_locale(): void
+    {
+        $stores = collect(StoreSeeder::getStoreData('usa'))->keyBy('slug');
+
+        foreach (['amazon-us', 'walmart-us', 'newegg-us'] as $slug) {
+            $this->assertSame('en_US', data_get($stores->get($slug), 'settings.locale_settings.locale'));
+            $this->assertSame('USD', data_get($stores->get($slug), 'settings.locale_settings.currency'));
+            $this->assertSame('en_US', data_get($stores->get($slug), 'settings.locale_settings.price_locale_fallback'));
+        }
     }
 
     public function test_to_string_formats_float_value()

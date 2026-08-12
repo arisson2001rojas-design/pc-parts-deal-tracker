@@ -16,10 +16,10 @@ use JsonSerializable;
 final class PriceFetchResult implements Arrayable, JsonSerializable
 {
     /**
-     * @param  list<array{amount: int|float|string, currency: string, confidence: float, evidence: string}>  $candidates
+     * @param  list<array{amount: int|float|string, currency: string, confidence: float, evidence: string, raw_amount?: int|float|string}>  $candidates
      * @param  array{kind: string, retryable: bool, http_status?: int, reason?: string}|null  $error
      * @param  list<mixed>  $rawErrors
-     * @param  list<array{engine: string, source: string, status: string, latency_ms: int, final_url: string, error: array<string, mixed>|null, observed_at: string, http_status?: int, decision?: string}>  $attempts
+     * @param  list<array{engine: string, source: string, status: string, latency_ms: int, final_url: string, error: array<string, mixed>|null, observed_at: string, http_status?: int, decision?: string, parse_locale?: string}>  $attempts
      */
     public function __construct(
         public PriceFetchStatus $status,
@@ -57,6 +57,9 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
             ? ($this->candidates[0] ?? null)
             : null;
 
+        $normalizedPrice = $candidate['amount'] ?? null;
+        $publicPrice = $candidate['raw_amount'] ?? $normalizedPrice;
+
         $payload = [
             'store' => $store,
             'status' => $this->status->value,
@@ -64,7 +67,8 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
             'engine' => $this->engine,
             'final_url' => $this->finalUrl,
             'title' => $this->title,
-            'price' => $candidate['amount'] ?? null,
+            'price' => $publicPrice,
+            'normalized_price' => $this->pricesNormalized && $candidate !== null ? $normalizedPrice : null,
             'price_normalized' => $this->pricesNormalized && $candidate !== null,
             'currency' => $candidate['currency'] ?? null,
             'image' => $this->image,
@@ -159,7 +163,7 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
     }
 
     /**
-     * @return array{engine: string, source: string, status: string, latency_ms: int, final_url: string, error: array<string, mixed>|null, observed_at: string, http_status?: int, decision?: string}
+     * @return array{engine: string, source: string, status: string, latency_ms: int, final_url: string, error: array<string, mixed>|null, observed_at: string, http_status?: int, decision?: string, parse_locale?: string}
      */
     private function toAttemptArray(): array
     {

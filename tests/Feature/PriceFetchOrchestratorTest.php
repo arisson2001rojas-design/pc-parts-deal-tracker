@@ -165,6 +165,98 @@ class PriceFetchOrchestratorTest extends TestCase
         $this->assertNull($url->fresh()->getAvailabilityStatus());
     }
 
+    public function test_raw_fallback_price_records_explicit_locale_recovery(): void
+    {
+        $store = $this->store('http', 'es');
+        $store->update([
+            'settings' => [
+                ...$store->settings,
+                'locale_settings' => [
+                    'locale' => 'es',
+                    'currency' => 'USD',
+                    'price_locale_fallback' => 'en_US',
+                ],
+            ],
+        ]);
+        Http::fake([
+            'price-extractor/*' => Http::response([
+                'status' => 'no_price',
+                'page_url' => self::PRODUCT_URL,
+                'title' => 'Amazon SSD',
+                'candidates' => [],
+            ]),
+        ]);
+
+        $scraper = Mockery::mock(ScrapeUrl::class, [self::PRODUCT_URL])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $scraper->shouldReceive('getStore')->andReturn($store);
+        $scraper->shouldReceive('scrapeUrl')->once()->andReturn([
+            'store' => $store,
+            'title' => 'Amazon SSD',
+            'price' => '$1,479.99',
+        ]);
+
+        $scrape = $scraper->scrape();
+
+        $this->assertSame('$1,479.99', $scrape['price']);
+        $this->assertSame(1479.99, $scrape['normalized_price']);
+        $this->assertTrue($scrape['price_normalized']);
+        $this->assertCount(2, $scrape['attempts']);
+        $this->assertSame('locale_fallback', $scrape['attempts'][1]['decision']);
+        $this->assertSame('en_US', $scrape['attempts'][1]['parse_locale']);
+
+        $store->update([
+            'settings' => [
+                ...$store->settings,
+                'locale_settings' => ['locale' => 'es', 'currency' => 'USD'],
+            ],
+        ]);
+        $store->refresh();
+        $url = Url::factory()->for($store)->create(['url' => self::PRODUCT_URL]);
+        $stored = $url->updatePrice(null, $scrape);
+
+        $this->assertSame(1479.99, (float) $stored?->price);
+    }
+
+    public function test_ambiguous_raw_fallback_price_fails_closed_with_diagnostic(): void
+    {
+        $store = $this->store('http', 'es');
+        $store->update([
+            'settings' => [
+                ...$store->settings,
+                'locale_settings' => [
+                    'locale' => 'es',
+                    'currency' => 'USD',
+                    'price_locale_fallback' => 'en_US',
+                ],
+            ],
+        ]);
+        Http::fake([
+            'price-extractor/*' => Http::response([
+                'status' => 'no_price',
+                'page_url' => self::PRODUCT_URL,
+                'title' => 'Ambiguous SSD',
+                'candidates' => [],
+            ]),
+        ]);
+
+        $result = resolve(PriceFetchOrchestrator::class)->fetch(
+            self::PRODUCT_URL,
+            $store,
+            fn (): array => ['title' => 'Ambiguous SSD', 'price' => '1,479'],
+        );
+
+        $this->assertSame(PriceFetchStatus::InvalidResponse, $result->status);
+        $this->assertSame('locale_mismatch', $result->attempts[1]['decision']);
+        $this->assertArrayNotHasKey('parse_locale', $result->attempts[1]);
+        $this->assertSame('locale_mismatch', $result->error['reason']);
+
+        $url = Url::factory()->for($store)->create(['url' => self::PRODUCT_URL]);
+        $this->assertNull($url->updatePrice(null, $result->toScrapeArray($store)));
+        $this->assertDatabaseCount('prices', 0);
+    }
+
     public function test_soft_404_marker_survives_orchestrator_and_url_persistence(): void
     {
         $store = $this->store('api');
@@ -266,7 +358,8 @@ class PriceFetchOrchestratorTest extends TestCase
         $this->assertSame(PriceFetchStatus::Success, $result->status);
         $this->assertSame('seleniumbase', $result->engine);
         $this->assertSame('store_strategy', $result->source);
-        $this->assertSame('149.99', $result->candidates[0]['amount']);
+        $this->assertSame(149.99, $result->candidates[0]['amount']);
+        $this->assertTrue($result->pricesNormalized);
         $this->assertSame('https://images.example/browser-cpu.jpg', $result->image);
         $this->assertSame('InStock', $result->availability);
         $this->assertSame('HTTP Seller', $result->seller);
@@ -573,7 +666,8 @@ class PriceFetchOrchestratorTest extends TestCase
 
         $this->assertSame(PriceFetchStatus::Success, $result->status);
         $this->assertSame('store_http', $result->engine);
-        $this->assertSame('129.99', $result->candidates[0]['amount']);
+        $this->assertSame(129.99, $result->candidates[0]['amount']);
+        $this->assertTrue($result->pricesNormalized);
     }
 
     private function store(string $scraperService, string $locale = 'en_US'): Store
