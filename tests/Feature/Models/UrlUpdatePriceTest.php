@@ -4,6 +4,7 @@ namespace Tests\Feature\Models;
 
 use App\Dto\AiExtractionResultDto;
 use App\Enums\ComponentType;
+use App\Enums\StockStatus;
 use App\Models\Price;
 use App\Models\Product;
 use App\Models\Store;
@@ -144,5 +145,80 @@ class UrlUpdatePriceTest extends TestCase
 
         $this->assertNull($price);
         $this->assertDatabaseCount('prices', 0);
+    }
+
+    public function test_normalized_foreign_currency_is_rejected_before_the_pc_specific_guard(): void
+    {
+        $store = Store::factory()->create([
+            'settings' => [
+                'locale_settings' => ['locale' => 'en_US', 'currency' => 'USD'],
+            ],
+        ]);
+        $product = Product::factory()->create(['component_type' => null]);
+        $url = Url::factory()->for($product)->for($store)->create();
+        $existing = $url->prices()->create([
+            'price' => 1479.99,
+            'unit_price' => 1479.99,
+            'price_factor' => 1,
+            'store_id' => $store->getKey(),
+        ]);
+
+        $price = $url->updatePrice(672300.26, [
+            'price' => 672300.26,
+            'normalized_price' => 672300.26,
+            'price_normalized' => true,
+            'currency' => 'CRC',
+        ]);
+
+        $this->assertNull($price);
+        $this->assertDatabaseCount('prices', 1);
+        $this->assertSame(1479.99, (float) $existing->fresh()->price);
+    }
+
+    public function test_raw_unknown_preserves_prior_availability_and_fails_closed_without_price(): void
+    {
+        foreach ([null, StockStatus::OutOfStock] as $priorAvailability) {
+            $url = Url::factory()->for(Product::factory())->create([
+                'availability' => $priorAvailability,
+            ]);
+
+            $result = $url->updatePrice(null, [
+                'price' => null,
+                'availability' => ' UNKNOWN ',
+            ]);
+
+            $this->assertNull($result);
+            $this->assertSame($priorAvailability, $url->fresh()->getAvailabilityStatus());
+            $this->assertCount(0, $url->prices);
+        }
+    }
+
+    public function test_guard_rejection_preserves_history_and_legacy_return_contract(): void
+    {
+        $store = Store::factory()->create([
+            'settings' => [
+                'locale_settings' => ['locale' => 'en_US', 'currency' => 'USD'],
+            ],
+        ]);
+        $product = Product::factory()->create(['component_type' => ComponentType::Ssd]);
+        $url = Url::factory()->for($product)->for($store)->create();
+        $existing = $url->prices()->create([
+            'price' => 149.99,
+            'unit_price' => 149.99,
+            'price_factor' => 1,
+            'store_id' => $store->getKey(),
+        ]);
+
+        $result = $url->updatePrice(672300.26, [
+            'price' => 672300.26,
+            'normalized_price' => 672300.26,
+            'price_normalized' => true,
+            'currency' => 'USD',
+        ]);
+
+        $this->assertInstanceOf(Price::class, $result);
+        $this->assertSame($existing->getKey(), $result->getKey());
+        $this->assertDatabaseCount('prices', 1);
+        $this->assertSame(149.99, (float) $existing->fresh()->price);
     }
 }

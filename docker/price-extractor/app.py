@@ -7,6 +7,7 @@ from collections import defaultdict
 from urllib.parse import urlparse
 
 from curl_cffi import requests
+from curl_cffi.const import CurlECode
 from flask import Flask, jsonify, request
 
 from extractor import extract_document, looks_blocked
@@ -36,6 +37,34 @@ def _session(host: str) -> requests.Session:
     if host not in _sessions:
         _sessions[host] = requests.Session(impersonate="chrome131")
     return _sessions[host]
+
+
+def _upstream_error(status_code: int):
+    if status_code == 429:
+        status, retryable, error = "rate_limited", True, "retailer rate limited the request"
+    elif status_code in (403, 409):
+        status, retryable, error = "challenge", True, "retailer rejected the request"
+    elif status_code == 404:
+        status, retryable, error = "no_price", False, "retailer product was not found"
+    elif status_code == 408:
+        status, retryable, error = "network_error", True, "retailer request failed"
+    elif status_code >= 500:
+        status, retryable, error = "network_error", True, "retailer server error"
+    else:
+        status, retryable, error = "invalid_response", False, "retailer rejected the request"
+
+    payload = {
+        "error": error,
+        "status": status,
+        "http_status": status_code,
+        "retryable": retryable,
+    }
+    if status_code in (403, 409):
+        payload["blocked"] = True
+    if status_code == 404:
+        payload["not_found"] = True
+
+    return jsonify(payload), status_code
 
 
 @app.get("/health")
@@ -68,15 +97,34 @@ def extract():
                 timeout=25,
                 allow_redirects=True,
             )
-        except requests.RequestsError:
-            return jsonify({"error": "retailer request failed"}), 502
+        except requests.RequestsError as exception:
+            if exception.code == CurlECode.OPERATION_TIMEDOUT:
+                return jsonify({
+                    "error": "timeout",
+                    "status": "network_error",
+                    "retryable": True,
+                }), 504
+
+            return jsonify({
+                "error": "retailer request failed",
+                "status": "network_error",
+                "http_status": 502,
+                "retryable": True,
+            }), 502
         finally:
             _last_request[host] = time.monotonic()
 
     final_url = str(response.url)
     final_host = (urlparse(final_url).hostname or "").lower()
-    if response.status_code >= 400 or not _host_allowed(final_host):
-        return jsonify({"error": "retailer rejected the request"}), 502
+    if not _host_allowed(final_host):
+        return jsonify({
+            "error": "retailer redirected outside the supported retailer",
+            "status": "invalid_response",
+            "http_status": 502,
+            "retryable": False,
+        }), 502
+    if response.status_code >= 400:
+        return _upstream_error(response.status_code)
 
     html = response.text
     if looks_blocked(html):

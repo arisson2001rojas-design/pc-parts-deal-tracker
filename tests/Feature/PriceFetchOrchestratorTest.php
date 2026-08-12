@@ -219,6 +219,52 @@ class PriceFetchOrchestratorTest extends TestCase
         $this->assertSame(1479.99, (float) $stored?->price);
     }
 
+    public function test_raw_fallback_with_explicit_foreign_currency_fails_closed(): void
+    {
+        $store = $this->store('http');
+        config()->set('deal_hunter.price_extractor_url');
+
+        $result = resolve(PriceFetchOrchestrator::class)->fetch(
+            self::PRODUCT_URL,
+            $store,
+            fn (): array => [
+                'store' => $store,
+                'title' => 'Samsung 870 QVO 8TB',
+                'price' => 'CRC672,300.26',
+                'availability' => 'InStock',
+            ],
+        );
+
+        $this->assertSame(PriceFetchStatus::InvalidResponse, $result->status);
+        $this->assertSame([], $result->candidates);
+        $this->assertSame('currency_mismatch', $result->error['reason']);
+        $this->assertSame('USD', $result->error['expected_currency']);
+        $this->assertSame('CRC', $result->error['detected_currency']);
+        $this->assertSame('currency_mismatch', $result->attempts[1]['decision']);
+        $this->assertSame('USD', $result->attempts[1]['expected_currency']);
+        $this->assertSame('CRC', $result->attempts[1]['detected_currency']);
+
+        $url = Url::factory()->for($store)->create(['url' => self::PRODUCT_URL]);
+        $this->assertNull($url->updatePrice(null, $result->toScrapeArray($store)));
+        $this->assertDatabaseCount('prices', 0);
+    }
+
+    public function test_matching_explicit_iso_fallback_remains_valid(): void
+    {
+        $store = $this->store('http');
+        config()->set('deal_hunter.price_extractor_url');
+
+        $result = resolve(PriceFetchOrchestrator::class)->fetch(
+            self::PRODUCT_URL,
+            $store,
+            fn (): array => ['title' => 'Samsung SSD', 'price' => 'USD1,479.99'],
+        );
+
+        $this->assertSame(PriceFetchStatus::Success, $result->status);
+        $this->assertSame(1479.99, $result->candidates[0]['amount']);
+        $this->assertSame('USD', $result->candidates[0]['currency']);
+    }
+
     public function test_ambiguous_raw_fallback_price_fails_closed_with_diagnostic(): void
     {
         $store = $this->store('http', 'es');
@@ -373,6 +419,48 @@ class PriceFetchOrchestratorTest extends TestCase
         );
     }
 
+    public function test_normalized_unknown_availability_preserves_prior_state_with_a_valid_price(): void
+    {
+        $store = $this->store('api');
+        $this->fakeExtractorSuccess(availability: 'unknown', price: 1399.99);
+        $result = resolve(RetailPriceExtractorClient::class)->fetchUrl(self::PRODUCT_URL);
+        $url = Url::factory()->for($store)->create([
+            'url' => self::PRODUCT_URL,
+            'availability' => StockStatus::OutOfStock,
+        ]);
+
+        $stored = $url->updatePrice(null, $result->toScrapeArray($store));
+
+        $this->assertSame(1399.99, (float) $stored?->price);
+        $this->assertSame(StockStatus::OutOfStock, $url->fresh()->getAvailabilityStatus());
+        $this->assertDatabaseCount('prices', 1);
+    }
+
+    public function test_normalized_unknown_without_a_price_is_not_treated_as_out_of_stock(): void
+    {
+        $store = $this->store('api');
+        Http::fake([
+            'price-extractor.test/extract' => Http::response([
+                'error' => 'no reliable product price found',
+                'data' => [
+                    'page_url' => self::PRODUCT_URL,
+                    'title' => 'Samsung SSD',
+                    'availability' => 'unknown',
+                    'candidates' => [],
+                ],
+            ], 422),
+        ]);
+        $result = resolve(RetailPriceExtractorClient::class)->fetchUrl(self::PRODUCT_URL);
+        $url = Url::factory()->for($store)->create([
+            'url' => self::PRODUCT_URL,
+            'availability' => StockStatus::OutOfStock,
+        ]);
+
+        $this->assertNull($url->updatePrice(null, $result->toScrapeArray($store)));
+        $this->assertSame(StockStatus::OutOfStock, $url->fresh()->getAvailabilityStatus());
+        $this->assertDatabaseCount('prices', 0);
+    }
+
     public function test_timeout_is_normalized_as_retryable(): void
     {
         Http::fake(fn () => throw new ConnectionException('cURL error 28: Operation timed out'));
@@ -448,6 +536,88 @@ class PriceFetchOrchestratorTest extends TestCase
         ], $result->error);
         $this->assertSame('rate_limited', $result->attempts[0]['status']);
         $this->assertSame(429, $result->attempts[0]['http_status']);
+    }
+
+    public function test_http_408_409_and_504_keep_their_transport_status_and_semantics(): void
+    {
+        Http::fakeSequence()
+            ->push(['error' => 'retailer request failed'], 408)
+            ->push(['error' => 'retailer rejected the request'], 409)
+            ->push(['error' => 'retailer request failed'], 504);
+
+        foreach ([
+            408 => PriceFetchStatus::NetworkError,
+            409 => PriceFetchStatus::Challenge,
+            504 => PriceFetchStatus::NetworkError,
+        ] as $httpStatus => $expectedStatus) {
+            $result = resolve(RetailPriceExtractorClient::class)->fetchUrl(self::PRODUCT_URL);
+
+            $this->assertSame($expectedStatus, $result->status);
+            $this->assertSame($httpStatus, $result->httpStatus);
+            $this->assertSame($httpStatus, $result->attempts[0]['http_status']);
+            $this->assertTrue($result->error['retryable']);
+        }
+    }
+
+    public function test_http_404_preserves_not_found_semantics_without_retrying(): void
+    {
+        $store = $this->store('api');
+        Http::fake([
+            'price-extractor.test/extract' => Http::response([
+                'error' => 'retailer product was not found',
+                'status' => 'no_price',
+                'not_found' => true,
+            ], 404),
+        ]);
+
+        $http = resolve(RetailPriceExtractorClient::class)->fetchUrl(self::PRODUCT_URL);
+
+        $this->assertSame(PriceFetchStatus::NoPrice, $http->status);
+        $this->assertTrue($http->notFound);
+        $this->assertSame('not_found', $http->error['kind']);
+        $this->assertSame(404, $http->httpStatus);
+        $this->assertTrue($http->toScrapeArray($store)['not_found']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_http_404_survives_a_failed_fallback(): void
+    {
+        $store = $this->store('api');
+        Http::fake([
+            'price-extractor.test/extract' => Http::response([
+                'error' => 'retailer product was not found',
+                'not_found' => true,
+            ], 404),
+        ]);
+
+        $result = resolve(PriceFetchOrchestrator::class)->fetch(
+            self::PRODUCT_URL,
+            $store,
+            fn (): array => [
+                'fetch_error' => ['kind' => 'network_error', 'retryable' => true],
+            ],
+        );
+
+        $this->assertTrue($result->notFound);
+        $this->assertTrue($result->toScrapeArray($store)['not_found']);
+        $this->assertSame(['no_price', 'network_error'], array_column($result->attempts, 'status'));
+    }
+
+    public function test_http_503_remains_an_upstream_network_error(): void
+    {
+        Http::fake([
+            'price-extractor.test/extract' => Http::response([
+                'error' => 'retailer server error',
+                'status' => 'network_error',
+                'http_status' => 503,
+            ], 503),
+        ]);
+
+        $result = resolve(RetailPriceExtractorClient::class)->fetchUrl(self::PRODUCT_URL);
+
+        $this->assertSame(PriceFetchStatus::NetworkError, $result->status);
+        $this->assertSame(503, $result->httpStatus);
+        $this->assertSame(503, $result->attempts[0]['http_status']);
     }
 
     public function test_http_200_with_captcha_evidence_is_still_a_challenge(): void
@@ -562,8 +732,42 @@ class PriceFetchOrchestratorTest extends TestCase
         $this->assertCount(2, $result->attempts);
         $this->assertSame('success', $result->attempts[0]['status']);
         $this->assertNull($result->attempts[0]['error']);
-        $this->assertSame('candidate_rejected', $result->attempts[0]['decision']);
+        $this->assertSame('currency_mismatch', $result->attempts[0]['decision']);
+        $this->assertSame('USD', $result->attempts[0]['expected_currency']);
+        $this->assertSame('EUR', $result->attempts[0]['detected_currency']);
         $this->assertSame('success', $result->attempts[1]['status']);
+    }
+
+    public function test_price_shaped_non_iso_http_token_is_rejected_before_fallback(): void
+    {
+        $store = $this->store('api');
+        Http::fake([
+            'price-extractor.test/extract' => Http::response([
+                'data' => [
+                    'page_url' => self::PRODUCT_URL,
+                    'title' => 'Samsung SSD',
+                    'availability' => 'in_stock',
+                    'candidates' => [[
+                        'price' => 1479.99,
+                        'raw_amount' => 'USDC1,479.99',
+                        'currency' => 'USD',
+                        'source' => 'site_specific',
+                        'confidence' => 0.96,
+                    ]],
+                ],
+            ]),
+        ]);
+
+        $result = resolve(PriceFetchOrchestrator::class)->fetch(
+            self::PRODUCT_URL,
+            $store,
+            fn (): array => ['title' => 'Samsung SSD', 'price' => '149.99'],
+        );
+
+        $this->assertSame(PriceFetchStatus::Success, $result->status);
+        $this->assertSame('invalid_currency_token', $result->attempts[0]['decision']);
+        $this->assertSame('success', $result->attempts[1]['status']);
+        $this->assertSame(149.99, $result->candidates[0]['amount']);
     }
 
     public function test_structured_fallback_uses_valid_rate_limit_status_when_kind_is_unknown(): void

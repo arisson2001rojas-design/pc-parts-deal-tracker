@@ -146,6 +146,55 @@ class CurrencyHelperTest extends TestCase
         $this->assertSame('primary_locale', $result['decision']);
     }
 
+    public function test_strict_price_parser_rejects_an_explicit_foreign_iso_currency(): void
+    {
+        foreach (['CRC672,300.26', 'CRC 672,300.26', '672,300.26 CRC'] as $raw) {
+            $result = CurrencyHelper::parsePrice($raw, locale: 'en_US', iso: 'USD');
+
+            $this->assertNull($result['amount']);
+            $this->assertSame('currency_mismatch', $result['decision']);
+            $this->assertSame('USD', $result['expected_currency']);
+            $this->assertSame('CRC', $result['detected_currency']);
+        }
+    }
+
+    public function test_strict_price_parser_rejects_price_shaped_non_iso_currency_tokens(): void
+    {
+        foreach (['USDC1,479.99', 'CRCX672,300.26'] as $raw) {
+            $result = CurrencyHelper::parsePrice($raw, locale: 'en_US', iso: 'USD');
+
+            $this->assertNull($result['amount']);
+            $this->assertSame('invalid_currency_token', $result['decision']);
+        }
+    }
+
+    public function test_strict_price_parser_accepts_matching_iso_and_ambiguous_dollar_symbol(): void
+    {
+        foreach (['USD1,479.99', 'USD 1,479.99', '$1,479.99'] as $raw) {
+            $result = CurrencyHelper::parsePrice($raw, locale: 'en_US', iso: 'USD');
+
+            $this->assertSame(1479.99, $result['amount']);
+            $this->assertSame('primary_locale', $result['decision']);
+        }
+    }
+
+    public function test_strict_price_parser_rejects_explicit_eur_for_a_usd_store(): void
+    {
+        $result = CurrencyHelper::parsePrice('EUR 1.479,99', locale: 'de_DE', iso: 'USD');
+
+        $this->assertNull($result['amount']);
+        $this->assertSame('currency_mismatch', $result['decision']);
+        $this->assertSame('EUR', $result['detected_currency']);
+    }
+
+    public function test_normalized_numeric_price_remains_currency_agnostic(): void
+    {
+        $result = CurrencyHelper::parsePrice(1399.99, locale: 'es', iso: 'USD', fallbackLocale: 'en_US');
+
+        $this->assertSame(1399.99, $result['amount']);
+        $this->assertSame('numeric', $result['decision']);
+    }
+
     public function test_strict_price_parser_recovers_with_explicit_locale_fallback(): void
     {
         $result = CurrencyHelper::parsePrice(

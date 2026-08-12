@@ -418,7 +418,7 @@ class Url extends Model
         $store = data_get($scrape, 'store');
 
         $availabilityStrategy = data_get($store, 'scrape_strategy.availability');
-        $isUnavailable = ScrapeUrl::resolveStockStatus($scrape, $availabilityStrategy)->isUnavailable();
+        $isUnavailable = ScrapeUrl::resolveStockStatus($scrape, $availabilityStrategy)?->isUnavailable() ?? false;
 
         // AI fallback: when a normal create would fail, let the healing agent build or
         // repair the store config, then re-scrape once with the new config.
@@ -427,7 +427,7 @@ class Url extends Model
             $scrape = ScrapeUrl::new($url)->setSendUiNotifications(false)->scrape();
             $store = data_get($scrape, 'store');
             $availabilityStrategy = data_get($store, 'scrape_strategy.availability');
-            $isUnavailable = ScrapeUrl::resolveStockStatus($scrape, $availabilityStrategy)->isUnavailable();
+            $isUnavailable = ScrapeUrl::resolveStockStatus($scrape, $availabilityStrategy)?->isUnavailable() ?? false;
         }
 
         return ['store' => $store, 'scrape' => $scrape, 'isUnavailable' => $isUnavailable];
@@ -452,6 +452,27 @@ class Url extends Model
             $price = data_get($scrapeResult, 'price');
         }
 
+        $expectedCurrency = CurrencyHelper::normalizeCurrencyCode($this->store?->currency);
+        $detectedCurrencies = array_values(array_unique(array_filter([
+            CurrencyHelper::detectExplicitCurrency($price),
+            CurrencyHelper::normalizeCurrencyCode(data_get($scrapeResult, 'currency')),
+        ])));
+        $mismatchedCurrency = $expectedCurrency === null
+            ? null
+            : collect($detectedCurrencies)->first(fn (string $currency): bool => $currency !== $expectedCurrency);
+
+        if ($mismatchedCurrency !== null) {
+            Log::channel('db')->warning('Rejected a retailer price with mismatched currency', [
+                'url_id' => $this->getKey(),
+                'store_id' => $this->store_id,
+                'decision' => 'currency_mismatch',
+                'expected_currency' => $expectedCurrency,
+                'detected_currency' => $mismatchedCurrency,
+            ]);
+
+            return null;
+        }
+
         // Update out-of-stock status based on scrape result.
         if ($scrapeResult) {
             $scrapedImage = data_get($scrapeResult, 'image');
@@ -462,14 +483,16 @@ class Url extends Model
 
             $availabilityStrategy = data_get($this->store, 'scrape_strategy.availability');
             $stockStatus = ScrapeUrl::resolveStockStatus($scrapeResult, $availabilityStrategy);
-            $availability = $stockStatus->isUnavailable() ? $stockStatus : null;
-            $previousAvailability = $this->getAvailabilityStatus();
-            $availabilityChanged = $previousAvailability !== $availability;
+            if ($stockStatus !== null) {
+                $availability = $stockStatus->isUnavailable() ? $stockStatus : null;
+                $previousAvailability = $this->getAvailabilityStatus();
+                $availabilityChanged = $previousAvailability !== $availability;
 
-            if ($availabilityChanged) {
-                $this->availability = $availability;
-                $this->save();
-                AvailabilityChangedEvent::dispatch($this, $previousAvailability, $availability);
+                if ($availabilityChanged) {
+                    $this->availability = $availability;
+                    $this->save();
+                    AvailabilityChangedEvent::dispatch($this, $previousAvailability, $availability);
+                }
             }
         }
 
@@ -534,6 +557,8 @@ class Url extends Model
                 'reason' => $reason,
             ]);
 
+            // Preserve the legacy return contract until callers can consume a
+            // typed accepted/rejected/unchanged/failed outcome.
             return $this->prices()->latest('id')->first();
         }
 
