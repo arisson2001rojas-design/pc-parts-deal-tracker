@@ -86,10 +86,13 @@ class RetailPriceExtractorClient
                 'retailer_mismatch',
                 false,
                 $startedAt,
+                httpStatus: $response->status(),
             );
         }
 
-        if (! $response->successful()) {
+        if (! $response->successful()
+            || $response->json('blocked') === true
+            || $this->looksLikeChallenge($response->json('error'))) {
             return $this->responseFailure(
                 $response,
                 $url,
@@ -112,6 +115,7 @@ class RetailPriceExtractorClient
                 image: $image,
                 availability: $availability,
                 seller: $seller,
+                httpStatus: $response->status(),
             );
         }
 
@@ -126,6 +130,7 @@ class RetailPriceExtractorClient
                 image: $image,
                 availability: $availability,
                 seller: $seller,
+                httpStatus: $response->status(),
             );
         }
 
@@ -142,6 +147,7 @@ class RetailPriceExtractorClient
             latencyMs: $this->latencyMs($startedAt),
             seller: $seller,
             pricesNormalized: true,
+            httpStatus: $response->status(),
         );
     }
 
@@ -155,13 +161,17 @@ class RetailPriceExtractorClient
         ?string $seller,
         int $startedAt,
     ): PriceFetchResult {
-        $error = Str::lower((string) $response->json('error'));
+        $reason = $this->normalizedReason($response->json('error'));
+        $error = Str::lower($reason ?? '');
         $blocked = $response->json('blocked') === true;
         $statusCode = $response->status();
 
-        if ($blocked
-            || in_array($statusCode, [403, 409, 429], true)
-            || Str::contains($error, ['verification', 'challenge', 'captcha', 'rejected'])) {
+        if ($statusCode === 429) {
+            $status = PriceFetchStatus::RateLimited;
+            $retryable = true;
+        } elseif ($blocked
+            || in_array($statusCode, [403, 409], true)
+            || $this->looksLikeChallenge($error)) {
             $status = PriceFetchStatus::Challenge;
             $retryable = true;
         } elseif (in_array($statusCode, [408, 504], true) || $this->isTimeout($error)) {
@@ -188,6 +198,8 @@ class RetailPriceExtractorClient
             image: $image,
             availability: $availability,
             seller: $seller,
+            httpStatus: $statusCode,
+            reason: $reason,
         );
     }
 
@@ -233,6 +245,8 @@ class RetailPriceExtractorClient
         ?string $image = null,
         ?string $availability = null,
         ?string $seller = null,
+        ?int $httpStatus = null,
+        ?string $reason = null,
     ): PriceFetchResult {
         return new PriceFetchResult(
             status: $status,
@@ -244,9 +258,46 @@ class RetailPriceExtractorClient
             availability: $availability,
             observedAt: new DateTimeImmutable,
             latencyMs: $this->latencyMs($startedAt),
-            error: ['kind' => $kind, 'retryable' => $retryable],
+            error: $this->errorPayload($kind, $retryable, $httpStatus, $reason),
             seller: $seller,
+            httpStatus: $httpStatus,
         );
+    }
+
+    /** @return array{kind: string, retryable: bool, http_status?: int, reason?: string} */
+    private function errorPayload(
+        string $kind,
+        bool $retryable,
+        ?int $httpStatus = null,
+        ?string $reason = null,
+    ): array {
+        $error = ['kind' => $kind, 'retryable' => $retryable];
+
+        if ($httpStatus !== null) {
+            $error['http_status'] = $httpStatus;
+        }
+        if ($reason !== null) {
+            $error['reason'] = $reason;
+        }
+
+        return $error;
+    }
+
+    private function normalizedReason(mixed $reason): ?string
+    {
+        if (! is_string($reason)) {
+            return null;
+        }
+
+        $reason = preg_replace('/\s+/', ' ', trim($reason));
+
+        return is_string($reason) && $reason !== '' ? Str::limit($reason, 160, '') : null;
+    }
+
+    private function looksLikeChallenge(mixed $reason): bool
+    {
+        return is_string($reason)
+            && Str::contains(Str::lower($reason), ['verification', 'challenge', 'captcha', 'bot protection']);
     }
 
     private function isTimeout(string $message): bool

@@ -17,8 +17,9 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
 {
     /**
      * @param  list<array{amount: int|float|string, currency: string, confidence: float, evidence: string}>  $candidates
-     * @param  array{kind: string, retryable: bool}|null  $error
+     * @param  array{kind: string, retryable: bool, http_status?: int, reason?: string}|null  $error
      * @param  list<mixed>  $rawErrors
+     * @param  list<array{engine: string, source: string, status: string, latency_ms: int, final_url: string, error: array<string, mixed>|null, observed_at: string, http_status?: int, decision?: string}>  $attempts
      */
     public function __construct(
         public PriceFetchStatus $status,
@@ -37,7 +38,13 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
         public array $rawErrors = [],
         public bool $notFound = false,
         public bool $pricesNormalized = false,
-    ) {}
+        public ?int $httpStatus = null,
+        public array $attempts = [],
+    ) {
+        if ($this->attempts === []) {
+            $this->attempts = [$this->toAttemptArray()];
+        }
+    }
 
     /**
      * Adapter for the existing Url validation/persistence pipeline.
@@ -64,6 +71,7 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
             'availability' => $this->availability,
             'observed_at' => $this->observedAt->format(DATE_ATOM),
             'latency_ms' => $this->latencyMs,
+            'attempts' => $this->attempts,
             'fetch_error' => $this->error,
             'body' => $this->body,
             'errors' => $this->rawErrors,
@@ -145,7 +153,31 @@ final class PriceFetchResult implements Arrayable, JsonSerializable
             'error' => $this->error,
             'notFound' => $this->notFound,
             'pricesNormalized' => $this->pricesNormalized,
+            'httpStatus' => $this->httpStatus,
+            'attempts' => $this->attempts,
         ];
+    }
+
+    /**
+     * @return array{engine: string, source: string, status: string, latency_ms: int, final_url: string, error: array<string, mixed>|null, observed_at: string, http_status?: int, decision?: string}
+     */
+    private function toAttemptArray(): array
+    {
+        $attempt = [
+            'engine' => $this->engine,
+            'source' => $this->source,
+            'status' => $this->status->value,
+            'latency_ms' => $this->latencyMs,
+            'final_url' => $this->finalUrl,
+            'error' => $this->error,
+            'observed_at' => $this->observedAt->format(DATE_ATOM),
+        ];
+
+        if ($this->httpStatus !== null) {
+            $attempt['http_status'] = $this->httpStatus;
+        }
+
+        return $attempt;
     }
 
     /** @return array<string, mixed> */
