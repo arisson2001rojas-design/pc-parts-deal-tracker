@@ -35,6 +35,7 @@ use Spatie\Sluggable\SlugOptions;
  * @property string|null $ai_provider_id
  * @property bool $ai_self_healing_disabled
  * @property string $locale
+ * @property string|null $price_locale_fallback
  * @property string $currency
  * @property Collection $urls
  * @property Collection $products
@@ -238,6 +239,15 @@ class Store extends Model
     {
         return Attribute::make(
             get: fn () => data_get($this->settings, 'locale_settings.locale', CurrencyHelper::getLocale()),
+        );
+    }
+
+    public function priceLocaleFallback(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): ?string => filled($locale = data_get($this->settings, 'locale_settings.price_locale_fallback'))
+                ? (string) $locale
+                : null,
         );
     }
 

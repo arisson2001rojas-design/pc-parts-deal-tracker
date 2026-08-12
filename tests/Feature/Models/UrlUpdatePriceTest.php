@@ -101,4 +101,48 @@ class UrlUpdatePriceTest extends TestCase
         $this->assertNull($price);
         $this->assertDatabaseCount('prices', 0);
     }
+
+    public function test_raw_price_uses_explicit_store_locale_fallback(): void
+    {
+        $store = Store::factory()->create([
+            'settings' => [
+                'locale_settings' => [
+                    'locale' => 'es',
+                    'currency' => 'USD',
+                    'price_locale_fallback' => 'en_US',
+                ],
+            ],
+        ]);
+        $product = Product::factory()->create(['component_type' => ComponentType::Ssd]);
+        $url = Url::factory()->for($product)->for($store)->create();
+
+        $price = $url->updatePrice('$1,479.99', [
+            'price' => '$1,479.99',
+            'availability' => null,
+        ]);
+
+        $this->assertSame(1479.99, (float) $price?->price);
+    }
+
+    public function test_ambiguous_raw_price_is_not_recorded(): void
+    {
+        $store = Store::factory()->create([
+            'settings' => [
+                'locale_settings' => [
+                    'locale' => 'es',
+                    'currency' => 'USD',
+                    'price_locale_fallback' => 'en_US',
+                ],
+            ],
+        ]);
+        $url = Url::factory()->for(Product::factory())->for($store)->create();
+
+        $price = $url->updatePrice('1,479', [
+            'price' => '1,479',
+            'availability' => null,
+        ]);
+
+        $this->assertNull($price);
+        $this->assertDatabaseCount('prices', 0);
+    }
 }

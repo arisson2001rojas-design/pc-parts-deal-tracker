@@ -24,6 +24,15 @@ return [
                 'type' => 'regex',
             ],
         ],
+        'settings' => [
+            'scraper_service' => ScraperService::Http->value,
+            'scraper_service_settings' => '',
+            'locale_settings' => [
+                'locale' => 'en_US',
+                'currency' => 'USD',
+                'price_locale_fallback' => 'en_US',
+            ],
+        ],
     ],
     [
         'name' => 'eBay US',
@@ -63,6 +72,11 @@ return [
         'settings' => [
             'scraper_service' => ScraperService::Api->value,
             'scraper_service_settings' => '',
+            'locale_settings' => [
+                'locale' => 'en_US',
+                'currency' => 'USD',
+                'price_locale_fallback' => 'en_US',
+            ],
         ],
         'notes' => 'JavaScript-rendered store. Automated access may be prohibited by Walmart terms; use only with permission or an approved API.',
     ],
@@ -90,6 +104,11 @@ return [
         'settings' => [
             'scraper_service' => ScraperService::Http->value,
             'scraper_service_settings' => '',
+            'locale_settings' => [
+                'locale' => 'en_US',
+                'currency' => 'USD',
+                'price_locale_fallback' => 'en_US',
+            ],
         ],
         'notes' => 'Public product pages use the main buy-box price. Requests are low-frequency; verify seller, shipping, and final price before purchase.',
     ],
