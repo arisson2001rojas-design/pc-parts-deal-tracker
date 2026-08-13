@@ -17,10 +17,10 @@ class AppSettings extends Settings
     public int $max_attempts_to_scrape = 3;
 
     /**
-     * Delayed, schedule-level retries for a failed URL scrape. Distinct from
-     * max_attempts_to_scrape, which retries immediately in-process within a
-     * single scrape. scrape_retry_max_attempts is the TOTAL attempt count
-     * including the original scrape; a value <= 1 disables delayed retries.
+     * Total logical scheduled executions for a failed URL, including the
+     * original. Each scheduled execution permits one configured-engine attempt;
+     * the HTTP/configured-engine strategy fallback remains part of that single
+     * execution. A value <= 1 disables delayed retries.
      */
     public int $scrape_retry_max_attempts = 3;
 

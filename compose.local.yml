@@ -19,6 +19,7 @@ services:
             DB_USERNAME: pricebuddy
             DB_PASSWORD: ${DB_PASSWORD}
             DB_DATABASE: pricebuddy
+            DB_QUEUE_RETRY_AFTER: ${DB_QUEUE_RETRY_AFTER:-1500}
             SCRAPER_BASE_URL: http://scraper:3000
             DEAL_HUNTER_SEARCH_URL: http://searxng:8080/search
             DEAL_HUNTER_REFRESH_HOURS: ${DEAL_HUNTER_REFRESH_HOURS:-8}

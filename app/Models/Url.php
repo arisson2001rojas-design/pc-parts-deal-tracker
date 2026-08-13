@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Dto\PriceUpdateOutcome;
 use App\Enums\StockStatus;
 use App\Events\AvailabilityChangedEvent;
 use App\Services\AiConfigHealer;
@@ -305,9 +306,18 @@ class Url extends Model
         return $changed;
     }
 
-    public function scrape(): array
+    public function scrape(?int $maxConfiguredEngineAttempts = null): array
     {
-        return $this->url ? ScrapeUrl::new($this->url)->scrape() : [];
+        if (! $this->url) {
+            return [];
+        }
+
+        $scraper = ScrapeUrl::new($this->url);
+        if ($maxConfiguredEngineAttempts !== null) {
+            $scraper->setMaxAttempts(max(1, $maxConfiguredEngineAttempts));
+        }
+
+        return $scraper->scrape();
     }
 
     public function getAvailabilityStatus(): ?StockStatus
@@ -438,15 +448,28 @@ class Url extends Model
         ?array $scrapeResult = null,
         int $deduplicateWithinSeconds = 0,
     ): Price|Model|null {
+        return $this->updatePriceWithOutcome(
+            $price,
+            $scrapeResult,
+            $deduplicateWithinSeconds,
+        )->legacyResult();
+    }
+
+    public function updatePriceWithOutcome(
+        int|float|string|null $price = null,
+        ?array $scrapeResult = null,
+        int $deduplicateWithinSeconds = 0,
+        ?int $maxConfiguredEngineAttempts = null,
+    ): PriceUpdateOutcome {
         if (! $this->store_id) {
-            return null;
+            return PriceUpdateOutcome::failed(false, 'missing_store');
         }
 
         $availabilityChanged = false;
         $stockStatus = null;
 
         if (is_null($price) || $price === '') {
-            $scrapeResult = $scrapeResult ?? $this->scrape();
+            $scrapeResult = $scrapeResult ?? $this->scrape($maxConfiguredEngineAttempts);
             $scrapeResult = AiConfigHealer::new()->heal($this, $scrapeResult);
             $scrapeResult = AiScrapeEnhancer::new()->enhance($this, $scrapeResult);
             $price = data_get($scrapeResult, 'price');
@@ -470,7 +493,7 @@ class Url extends Model
                 'detected_currency' => $mismatchedCurrency,
             ]);
 
-            return null;
+            return PriceUpdateOutcome::rejected('currency_mismatch');
         }
 
         // Update out-of-stock status based on scrape result.
@@ -507,10 +530,24 @@ class Url extends Model
             // the parent `Product::updatePrices()` doesn't count this URL
             // as failed and trigger a scrape-error notification.
             if ($stockStatus?->isUnavailable()) {
-                return $this->prices()->latest('id')->first();
+                /** @var ?Price $latestPrice */
+                $latestPrice = $this->prices()->latest('id')->first();
+
+                return PriceUpdateOutcome::unchanged(
+                    $latestPrice,
+                    'unavailable',
+                );
             }
 
-            return null;
+            $retryable = data_get($scrapeResult, 'fetch_error.retryable');
+            $reason = data_get($scrapeResult, 'fetch_error.kind')
+                ?? data_get($scrapeResult, 'status')
+                ?? 'no_price';
+
+            return PriceUpdateOutcome::failed(
+                is_bool($retryable) ? $retryable : true,
+                is_string($reason) ? $reason : 'no_price',
+            );
         }
 
         $normalizedPrice = data_get($scrapeResult, 'normalized_price', $price);
@@ -533,7 +570,7 @@ class Url extends Model
                 'fallback_locale' => $this->store?->price_locale_fallback,
             ]);
 
-            return null;
+            return PriceUpdateOutcome::rejected($priceParse['decision']);
         }
 
         if ($priceParse !== null && $priceParse['decision'] === 'locale_fallback') {
@@ -559,7 +596,13 @@ class Url extends Model
 
             // Preserve the legacy return contract until callers can consume a
             // typed accepted/rejected/unchanged/failed outcome.
-            return $this->prices()->latest('id')->first();
+            /** @var ?Price $latestPrice */
+            $latestPrice = $this->prices()->latest('id')->first();
+
+            return PriceUpdateOutcome::rejected(
+                $reason,
+                $latestPrice,
+            );
         }
 
         $priceFactor = $this->price_factor ?: 1;
@@ -572,10 +615,13 @@ class Url extends Model
         ];
 
         if ($deduplicateWithinSeconds <= 0) {
-            return $this->prices()->create($attributes);
+            /** @var Price $created */
+            $created = $this->prices()->create($attributes);
+
+            return PriceUpdateOutcome::accepted($created);
         }
 
-        return DB::transaction(function () use ($attributes, $deduplicateWithinSeconds, $priceFloat): Price|Model {
+        return DB::transaction(function () use ($attributes, $deduplicateWithinSeconds, $priceFloat): PriceUpdateOutcome {
             self::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
 
             $latest = $this->prices()
@@ -586,10 +632,13 @@ class Url extends Model
             if ($latest instanceof Price
                 && abs((float) $latest->price - $priceFloat) < 0.00001
                 && $latest->created_at->gte(now()->subSeconds($deduplicateWithinSeconds))) {
-                return $latest;
+                return PriceUpdateOutcome::unchanged($latest, 'deduplicated');
             }
 
-            return $this->prices()->create($attributes);
+            /** @var Price $created */
+            $created = $this->prices()->create($attributes);
+
+            return PriceUpdateOutcome::accepted($created);
         });
     }
 

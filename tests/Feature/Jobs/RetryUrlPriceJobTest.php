@@ -2,82 +2,112 @@
 
 namespace Tests\Feature\Jobs;
 
+use App\Dto\PriceFetchResult;
+use App\Enums\PriceFetchStatus;
+use App\Enums\ScraperService;
+use App\Enums\Statuses;
 use App\Jobs\RetryUrlPriceJob;
-use App\Models\Price;
 use App\Models\Product;
+use App\Models\Store;
 use App\Models\Url;
 use App\Models\User;
 use App\Notifications\ScrapeFailNotification;
+use App\Services\PriceFetchOrchestrator;
+use DateTimeImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
-use Mockery;
+use Mockery\MockInterface;
 use Tests\TestCase;
 
 class RetryUrlPriceJobTest extends TestCase
 {
     use RefreshDatabase;
 
-    /**
-     * Build a partial-mocked Url whose product relation is a partial-mocked
-     * Product, so we can drive updatePrice() outcomes without real scraping.
-     *
-     * @return array{0: Url, 1: Product}
-     */
-    private function makeUrlAndProduct(bool $paused = false): array
-    {
-        $product = Mockery::mock(Product::class)->makePartial();
-        $product->paused = $paused;
-        $product->shouldReceive('updatePriceCache')->andReturnNull();
-        $product->shouldReceive('updateInsightsCache')->andReturnNull();
+    private const string PRODUCT_URL = 'https://www.newegg.com/p/N82E16800000001';
 
-        $url = Mockery::mock(Url::class)->makePartial();
-        $url->setRelation('product', $product);
-
-        return [$url, $product];
-    }
-
-    public function test_reschedules_next_attempt_when_still_failing(): void
+    public function test_retryable_failure_schedules_the_next_logical_attempt(): void
     {
         Queue::fake();
         Notification::fake();
-
-        [$url] = $this->makeUrlAndProduct();
-        $url->shouldReceive('updatePrice')->once()->andReturnNull();
+        [, [$url]] = $this->productWithUrls();
+        $this->mockFetch($this->failureResult(retryable: true));
 
         (new RetryUrlPriceJob($url, 2))->handle();
 
         Queue::assertPushed(
             RetryUrlPriceJob::class,
-            fn (RetryUrlPriceJob $job) => $job->attempt === 3 && $job->url === $url && $job->delay !== null
+            fn (RetryUrlPriceJob $job): bool => $job->attempt === 3
+                && $job->url->is($url)
+                && $job->delay !== null,
         );
         Notification::assertNothingSent();
     }
 
-    public function test_notifies_and_stops_when_attempts_exhausted(): void
+    public function test_exhausted_retryable_failure_notifies_and_stops(): void
     {
         Queue::fake();
         Notification::fake();
+        [, [$url], $user] = $this->productWithUrls();
+        $this->mockFetch($this->failureResult(retryable: true));
 
-        $user = User::factory()->create();
-        [$url, $product] = $this->makeUrlAndProduct();
-        $product->setRelation('user', $user);
-        $url->shouldReceive('updatePrice')->once()->andReturnNull();
-
-        // Default max attempts is 3, so attempt 3 is the final one.
         (new RetryUrlPriceJob($url, 3))->handle();
 
         Notification::assertSentTo($user, ScrapeFailNotification::class);
         Queue::assertNotPushed(RetryUrlPriceJob::class);
     }
 
-    public function test_stops_silently_on_success(): void
+    public function test_accepted_outcome_stops_without_retry_or_notification(): void
     {
         Queue::fake();
         Notification::fake();
+        [, [$url]] = $this->productWithUrls();
+        $this->mockFetch($this->successResult());
 
-        [$url] = $this->makeUrlAndProduct();
-        $url->shouldReceive('updatePrice')->once()->andReturn(new Price);
+        (new RetryUrlPriceJob($url, 2))->handle();
+
+        $this->assertDatabaseCount('prices', 1);
+        Queue::assertNotPushed(RetryUrlPriceJob::class);
+        Notification::assertNothingSent();
+    }
+
+    public function test_unchanged_out_of_stock_outcome_stops_without_retry_or_notification(): void
+    {
+        Queue::fake();
+        Notification::fake();
+        [, [$url]] = $this->productWithUrls();
+        $this->mockFetch($this->outOfStockResult());
+
+        (new RetryUrlPriceJob($url, 2))->handle();
+
+        $this->assertDatabaseCount('prices', 0);
+        Queue::assertNotPushed(RetryUrlPriceJob::class);
+        Notification::assertNothingSent();
+    }
+
+    public function test_rejected_outcome_stops_without_retry_or_notification(): void
+    {
+        Queue::fake();
+        Notification::fake();
+        [, [$url]] = $this->productWithUrls();
+        $this->mockFetch($this->successResult(currency: 'CRC'));
+
+        (new RetryUrlPriceJob($url, 2))->handle();
+
+        $this->assertDatabaseCount('prices', 0);
+        Queue::assertNotPushed(RetryUrlPriceJob::class);
+        Notification::assertNothingSent();
+    }
+
+    public function test_paused_product_aborts_before_fetching(): void
+    {
+        Queue::fake();
+        Notification::fake();
+        [$product, [$url]] = $this->productWithUrls();
+        $product->forceFill(['paused' => true, 'paused_by_user' => true])->saveQuietly();
+        $this->mock(PriceFetchOrchestrator::class, function (MockInterface $mock): void {
+            $mock->shouldNotReceive('fetch');
+        });
 
         (new RetryUrlPriceJob($url, 2))->handle();
 
@@ -85,47 +115,99 @@ class RetryUrlPriceJobTest extends TestCase
         Notification::assertNothingSent();
     }
 
-    public function test_exhaustion_notifies_once_per_product_across_urls(): void
+    public function test_exhaustion_across_two_urls_notifies_once_per_product(): void
     {
         Queue::fake();
         Notification::fake();
+        [, [$urlA, $urlB], $user] = $this->productWithUrls(2);
+        $this->mockFetch($this->failureResult(retryable: true), times: 2);
 
-        $user = User::factory()->create();
-
-        $product = Mockery::mock(Product::class)->makePartial();
-        $product->id = 1;
-        $product->paused = false;
-        $product->shouldReceive('updatePriceCache')->andReturnNull();
-        $product->shouldReceive('updateInsightsCache')->andReturnNull();
-        $product->setRelation('user', $user);
-
-        $urlA = Mockery::mock(Url::class)->makePartial();
-        $urlA->setRelation('product', $product);
-        $urlA->shouldReceive('updatePrice')->once()->andReturnNull();
-
-        $urlB = Mockery::mock(Url::class)->makePartial();
-        $urlB->setRelation('product', $product);
-        $urlB->shouldReceive('updatePrice')->once()->andReturnNull();
-
-        // Both URLs of the same product exhaust their retries (attempt 3 of 3).
         (new RetryUrlPriceJob($urlA, 3))->handle();
         (new RetryUrlPriceJob($urlB, 3))->handle();
 
-        // Only one product-level notification should be sent.
         Notification::assertSentToTimes($user, ScrapeFailNotification::class, 1);
+        Queue::assertNotPushed(RetryUrlPriceJob::class);
     }
 
-    public function test_aborts_when_product_is_paused(): void
+    /** @return array{Product, list<Url>, User} */
+    private function productWithUrls(int $count = 1): array
     {
-        Queue::fake();
-        Notification::fake();
+        $user = User::factory()->create();
+        $product = Product::factory()->for($user)->create([
+            'paused' => false,
+            'paused_by_user' => false,
+            'status' => Statuses::Published->value,
+        ]);
+        $store = Store::factory()->create([
+            'domains' => [['domain' => 'www.newegg.com']],
+            'settings' => [
+                'scraper_service' => ScraperService::Http->value,
+                'scraper_service_settings' => '',
+                'locale_settings' => ['locale' => 'en_US', 'currency' => 'USD'],
+                'ai_self_healing_disabled' => true,
+            ],
+        ]);
+        $urls = [];
 
-        [$url] = $this->makeUrlAndProduct(paused: true);
-        $url->shouldReceive('updatePrice')->never();
+        for ($index = 1; $index <= $count; $index++) {
+            $urls[] = Url::factory()->for($product)->for($store)->create([
+                'url' => self::PRODUCT_URL.'?source='.$index,
+            ]);
+        }
 
-        (new RetryUrlPriceJob($url, 2))->handle();
+        return [$product, $urls, $user];
+    }
 
-        Queue::assertNotPushed(RetryUrlPriceJob::class);
-        Notification::assertNothingSent();
+    private function mockFetch(PriceFetchResult $result, int $times = 1): void
+    {
+        $this->mock(PriceFetchOrchestrator::class, function (MockInterface $mock) use ($result, $times): void {
+            $mock->shouldReceive('fetch')->times($times)->andReturn($result);
+        });
+    }
+
+    private function successResult(string $currency = 'USD'): PriceFetchResult
+    {
+        return new PriceFetchResult(
+            status: PriceFetchStatus::Success,
+            source: 'test',
+            engine: 'price_extractor',
+            finalUrl: self::PRODUCT_URL,
+            title: 'Test Product',
+            candidates: [[
+                'amount' => 149.99,
+                'currency' => $currency,
+                'confidence' => 0.99,
+                'evidence' => 'test',
+            ]],
+            observedAt: new DateTimeImmutable,
+            pricesNormalized: true,
+        );
+    }
+
+    private function outOfStockResult(): PriceFetchResult
+    {
+        return new PriceFetchResult(
+            status: PriceFetchStatus::NoPrice,
+            source: 'test',
+            engine: 'price_extractor',
+            finalUrl: self::PRODUCT_URL,
+            title: 'Test Product',
+            availability: 'out_of_stock',
+            observedAt: new DateTimeImmutable,
+            error: ['kind' => 'no_price', 'retryable' => false],
+            availabilityNormalized: true,
+        );
+    }
+
+    private function failureResult(bool $retryable): PriceFetchResult
+    {
+        return new PriceFetchResult(
+            status: PriceFetchStatus::NetworkError,
+            source: 'test',
+            engine: 'price_extractor',
+            finalUrl: self::PRODUCT_URL,
+            observedAt: new DateTimeImmutable,
+            error: ['kind' => 'network_error', 'retryable' => $retryable],
+        );
     }
 }

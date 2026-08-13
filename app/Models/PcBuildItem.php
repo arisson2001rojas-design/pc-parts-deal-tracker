@@ -38,7 +38,11 @@ class PcBuildItem extends Model
                 return;
             }
 
-            $product = resolve(CatalogTrackingService::class)->track($part, $build->user_id);
+            $product = resolve(CatalogTrackingService::class)->track(
+                $part,
+                $build->user_id,
+                respectManualPause: true,
+            );
             $item->forceFill(['product_id' => $product->getKey()])->saveQuietly();
             $item->setRelation('product', $product);
         });
