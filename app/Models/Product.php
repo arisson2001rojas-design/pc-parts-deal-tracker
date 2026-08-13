@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Dto\PriceCacheDto;
+use App\Dto\PriceUpdateOutcome;
 use App\Enums\ComponentType;
 use App\Enums\Statuses;
 use App\Enums\StockStatus;
@@ -719,6 +720,38 @@ class Product extends Model
         $this->updateInsightsCache();
 
         return $failed;
+    }
+
+    /**
+     * Update automatable URLs and retain the typed execution outcome for queue
+     * policy decisions. Passing one configured-engine attempt keeps each
+     * scheduled execution within the shared delayed-retry budget while retaining
+     * the HTTP/configured-engine fallback strategy.
+     *
+     * @param  Collection<int, Url>|null  $urls
+     * @return Collection<int, array{url: Url, outcome: PriceUpdateOutcome}>
+     */
+    public function updatePricesWithOutcomes(
+        ?Collection $urls = null,
+        ?int $maxConfiguredEngineAttempts = null,
+    ): Collection {
+        /** @var Collection<int, Url> $candidateUrls */
+        $candidateUrls = $urls ?? $this->urls;
+
+        $outcomes = $candidateUrls
+            ->filter(fn (Url $url): bool => ScrapeUrl::allowsAutomatedAccess($url->url))
+            ->map(fn (Url $url): array => [
+                'url' => $url,
+                'outcome' => $url->updatePriceWithOutcome(
+                    maxConfiguredEngineAttempts: $maxConfiguredEngineAttempts,
+                ),
+            ])
+            ->values();
+
+        $this->updatePriceCache();
+        $this->updateInsightsCache();
+
+        return $outcomes;
     }
 
     /**

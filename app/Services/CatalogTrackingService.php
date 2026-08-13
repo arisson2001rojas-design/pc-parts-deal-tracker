@@ -20,13 +20,19 @@ class CatalogTrackingService
     /**
      * @param  null|array<int, string>  $retailers
      */
-    public function track(PcPart $part, int $userId, ?array $retailers = null, bool $queueRefresh = true): Product
-    {
+    public function track(
+        PcPart $part,
+        int $userId,
+        ?array $retailers = null,
+        bool $queueRefresh = true,
+        bool $respectManualPause = false,
+    ): Product {
         return DB::transaction(fn (): Product => $this->activate(
             $part,
             $userId,
             $retailers,
             $queueRefresh,
+            respectManualPause: $respectManualPause,
         ));
     }
 
@@ -73,6 +79,7 @@ class CatalogTrackingService
         ?string $image = null,
         bool $queueImageEnrichment = true,
         bool $browserDiscovery = false,
+        bool $respectManualPause = false,
     ): Product {
         $trackingInterval = max(3600, (int) config('price_buddy.pc_parts_tracking_interval_seconds', 28800));
         $product = Product::query()->firstOrCreate(
@@ -93,16 +100,23 @@ class CatalogTrackingService
         );
         $wasRecentlyCreated = $product->wasRecentlyCreated;
         $product = Product::query()->lockForUpdate()->findOrFail($product->getKey());
+        $preserveManualPause = ! $wasRecentlyCreated
+            && $respectManualPause
+            && $product->paused_by_user;
+        $preserveExistingCadence = ! $wasRecentlyCreated && $respectManualPause;
 
-        $reactivated = ! $wasRecentlyCreated && ($browserDiscovery
+        $reactivated = ! $preserveManualPause && ! $wasRecentlyCreated && ($browserDiscovery
             ? ($product->paused && ! $product->paused_by_user)
             : ($product->paused || ! $product->favourite || $product->status !== Statuses::Published));
         $attributes = [
             'title' => Str::limit($part->name, 1024, ''),
             'image' => blank($product->image) ? $image : $product->image,
             'component_type' => $part->component_type->value,
-            'status' => Statuses::Published->value,
         ];
+
+        if (! $preserveManualPause) {
+            $attributes['status'] = Statuses::Published->value;
+        }
 
         if ($browserDiscovery) {
             $attributes['paused'] = $product->paused_by_user;
@@ -110,11 +124,14 @@ class CatalogTrackingService
             if (is_null($product->refresh_interval)) {
                 $attributes['refresh_interval'] = $trackingInterval;
             }
-        } else {
+        } elseif (! $preserveManualPause) {
             $attributes['favourite'] = true;
             $attributes['paused'] = false;
             $attributes['paused_by_user'] = false;
-            $attributes['refresh_interval'] = $trackingInterval;
+
+            if (! $preserveExistingCadence) {
+                $attributes['refresh_interval'] = $trackingInterval;
+            }
         }
 
         $product->forceFill($attributes);
@@ -148,7 +165,11 @@ class CatalogTrackingService
             EnrichProductImageJob::dispatch($product->getKey())->afterCommit();
         }
 
-        if ($queueRefresh && $needsBootstrap && $product->urls()->exists()) {
+        if ($queueRefresh
+            && $needsBootstrap
+            && ! $product->paused
+            && ! $product->paused_by_user
+            && $product->urls()->exists()) {
             $product->scheduleNextCheck();
             UpdateProductPricesJob::dispatch($product, true)->afterCommit();
         }

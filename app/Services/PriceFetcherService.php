@@ -2,14 +2,22 @@
 
 namespace App\Services;
 
+use App\Enums\Statuses;
 use App\Jobs\UpdateAllPricesJob;
 use App\Jobs\UpdateProductPricesJob;
 use App\Models\Product;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Support\Facades\DB;
 
 class PriceFetcherService
 {
     public const JOB_TIMEOUT = 1200; // 20 minutes
+
+    public const PRODUCT_LOCK_TTL = self::JOB_TIMEOUT + 300;
+
+    public const PRODUCT_LOCK_RELEASE_AFTER = 30;
+
+    public const PRODUCT_LOCK_MAX_QUEUE_ATTEMPTS = 60;
 
     protected array $config;
 
@@ -49,13 +57,16 @@ class PriceFetcherService
 
     /**
      * Per-product lane: fetch published, non-paused products with a custom
-     * interval that are now due. Each chunk's next check is only pushed into the
-     * future once its job has been dispatched, so a failed dispatch can't
-     * prematurely advance next_check_at and silently skip those products.
+     * interval that are now due. Selection is repeated under row locks and the
+     * next check is advanced in the same transaction as dispatch, so competing
+     * schedulers cannot claim the same product.
      */
     public function updateDuePrices(): void
     {
-        $due = Product::query()
+        $chunkSize = max(1, (int) data_get($this->config, 'chunk_size'));
+
+        Product::query()
+            ->select('id')
             ->published()
             ->where('paused', false)
             ->whereNotNull('refresh_interval')
@@ -63,13 +74,26 @@ class PriceFetcherService
                 ->whereNull('next_check_at')
                 ->orWhere('next_check_at', '<=', now())
             )
-            ->get(['id', 'refresh_interval', 'next_check_at']);
+            ->chunkById($chunkSize, function (EloquentCollection $candidates): void {
+                $candidates->each(function (Product $candidate): void {
+                    DB::transaction(function () use ($candidate): void {
+                        $product = Product::query()
+                            ->whereKey($candidate->getKey())
+                            ->lockForUpdate()
+                            ->first();
 
-        $due->chunk((int) data_get($this->config, 'chunk_size'))
-            ->each(function (EloquentCollection $chunk): void {
-                UpdateAllPricesJob::dispatch($chunk->pluck('id')->values()->toArray());
+                        if (! $product
+                            || $product->status !== Statuses::Published
+                            || $product->paused
+                            || is_null($product->refresh_interval)
+                            || $product->next_check_at?->isFuture()) {
+                            return;
+                        }
 
-                $chunk->each(fn (Product $product) => $product->scheduleNextCheck());
+                        UpdateAllPricesJob::dispatch([$product->getKey()]);
+                        $product->scheduleNextCheck();
+                    });
+                });
             });
     }
 
