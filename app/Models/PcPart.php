@@ -7,6 +7,7 @@ use Database\Factories\PcPartFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
@@ -20,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property ?int $release_year
  * @property array<string, string> $retailer_urls
  * @property array<string, mixed> $specifications
+ * @property ?HardwareIdentity $hardwareIdentity
  * @property ?Product $currentUserProduct
  */
 class PcPart extends Model
@@ -39,6 +41,14 @@ class PcPart extends Model
             'release_year' => 'integer',
             'source_updated_at' => 'datetime',
         ];
+    }
+
+    /**
+     * @return BelongsTo<HardwareIdentity, $this>
+     */
+    public function hardwareIdentity(): BelongsTo
+    {
+        return $this->belongsTo(HardwareIdentity::class);
     }
 
     /**

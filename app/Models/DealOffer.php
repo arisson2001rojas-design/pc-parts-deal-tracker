@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\URL;
  * @property string $currency
  * @property string $source
  * @property ?Carbon $fetched_at
+ * @property ?RetailerListing $listing
  */
 class DealOffer extends Model
 {
@@ -51,6 +52,11 @@ class DealOffer extends Model
     public function dealSearch(): BelongsTo
     {
         return $this->belongsTo(DealSearch::class);
+    }
+
+    public function listing(): BelongsTo
+    {
+        return $this->belongsTo(RetailerListing::class, 'retailer_listing_id');
     }
 
     /** @return HasMany<DealOfferPrice, $this> */

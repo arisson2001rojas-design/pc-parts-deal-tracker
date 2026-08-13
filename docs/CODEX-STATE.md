@@ -2,9 +2,8 @@
 
 ## Branch and base
 
-- Branch: `codex/fetch-observability`.
-- Known base: `3eb1777`.
-- PR #2 (UI stabilization and Newegg fixes) is merged into `main`.
+- Branch: `codex/multi-retailer-identity`.
+- Known base: `b7eb11d` (main after PR #6 / Milestone 2).
 
 ## Implemented milestones
 
@@ -16,13 +15,15 @@
 - PriceFetchOrchestrator with HTTP price-extractor first and existing SeleniumBase/store HTTP fallback.
 - PriceFetchResult/PriceFetchStatus common contract and canonical availability handling.
 - Amazon current-offer/title fixes and Newegg Buy New/stock extraction.
+- Fetch-integrity hardening and typed scheduler/retry outcomes from Milestones 1 and 2.
 
 ## Current milestone
 
-- Structured price-fetch observability by attempt.
-- Explicit `rate_limited` status, separate from bot/CAPTCHA challenge.
-- Preserve HTTP and fallback attempt diagnostics, metadata, and total latency.
-- No new internal retries or change to fallback policy.
+- Additive multi-retailer hardware identity infrastructure.
+- Separate physical `HardwareIdentity` from `RetailerListing`, tracked `Product`, and operational `Url`.
+- Deterministic retailer identifiers and component-specific evidence resolution.
+- Fail closed on capacity/model/component conflicts and ambiguous evidence.
+- Dry-run-only reconciliation; no Product merge or history movement.
 
 ## Invariants
 
@@ -33,12 +34,14 @@
 - Browser discovery does not trigger immediate job fanout.
 - Preserve real price history.
 - Do not implement challenge evasion.
+- Identity enrichment must never block ordinary tracking.
+- Probable/ambiguous/conflicting evidence must not create a verified link.
 
 ## Pending
 
-- Aggregate metrics by engine and retailer using the structured attempts.
-- Decide durable retention/export for diagnostics; attempts currently travel with the fetch result.
-- Evaluate Playwright only with evidence from failure metrics.
+- Director review of M3 schema, resolver, ingestion, and dry-run output.
+- Future reviewed reconciliation of historical duplicates; never a title-based mass merge.
+- Cross-retailer comparison UI using shared identities only after identity quality is measured.
 - Amazon seller cleanup and `regenerate-price-cache` optimization.
 - Deal Score and historical cross-retailer comparison.
 - Complete localization of advanced upstream/system screens.
@@ -48,7 +51,9 @@
 - Backend discovery dedupe window remains 300 seconds.
 - Pauses created before `paused_by_user` have no recorded provenance.
 - Attempt diagnostics are request-scoped until a later observability sink is approved.
+- Legacy catalog MPN arrays contain ambiguous aliases; claims remain inspectable and false negatives are preferred.
+- Existing duplicate Products/Urls remain intentionally untouched by M3.
 
 ## Next exact action
 
-Validate this milestone, review its diff, then request authorization for commit/push/PR.
+Complete M3 quality gates, then stop for Director review before any commit/push/PR.
