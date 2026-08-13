@@ -1,6 +1,6 @@
 "use strict";
 
-const DISCOVERY_ENDPOINT = "http://127.0.0.1:8281/api/browser-discoveries";
+const DISCOVERY_ENDPOINT = "http://127.0.0.1:8381/api/browser-discoveries";
 const RETAILER_DOMAINS = [
   "amazon.com",
   "walmart.com",
