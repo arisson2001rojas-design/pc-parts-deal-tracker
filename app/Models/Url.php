@@ -41,6 +41,7 @@ use Illuminate\Support\Uri;
  * @property string $latest_price_formatted
  * @property ?Store $store
  * @property ?Product $product
+ * @property ?RetailerListing $listing
  * @property ?int $store_id
  * @property ?int $product_id
  * @property ?StockStatus $availability
@@ -88,6 +89,11 @@ class Url extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function listing(): BelongsTo
+    {
+        return $this->belongsTo(RetailerListing::class, 'retailer_listing_id');
     }
 
     public function prices(): HasMany

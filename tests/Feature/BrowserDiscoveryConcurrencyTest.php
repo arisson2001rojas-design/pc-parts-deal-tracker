@@ -87,6 +87,12 @@ class BrowserDiscoveryConcurrencyTest extends TestCase
             $this->assertDatabaseCount('products', 1);
             $this->assertDatabaseCount('urls', 1);
             $this->assertDatabaseCount('prices', 1);
+            $this->assertDatabaseCount('hardware_identities', 1);
+            $this->assertDatabaseCount('retailer_listings', 1);
+            $this->assertDatabaseCount('hardware_identity_claims', 1);
+            $this->assertNotNull(DB::table('pc_parts')->value('hardware_identity_id'));
+            $this->assertNotNull(DB::table('urls')->value('retailer_listing_id'));
+            $this->assertNotNull(DB::table('deal_offers')->value('retailer_listing_id'));
         } finally {
             if (is_string($barrier) && file_exists($barrier)) {
                 unlink($barrier);
@@ -146,6 +152,8 @@ class BrowserDiscoveryConcurrencyTest extends TestCase
             'availability' => 'in_stock',
             'seller' => 'SenyTech Global',
             'manufacturer' => 'AMD',
+            'model' => 'Ryzen 5 5600',
+            'mpn' => '100-000000927',
             'part_number' => '100-000000927',
             'candidates' => [[
                 'price' => 129.99,

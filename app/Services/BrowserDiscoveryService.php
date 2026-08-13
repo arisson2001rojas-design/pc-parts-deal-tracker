@@ -2,16 +2,21 @@
 
 namespace App\Services;
 
+use App\Dto\HardwareEvidence;
+use App\Dto\IdentityIngestionResult;
 use App\Enums\ComponentType;
 use App\Models\DealOffer;
 use App\Models\DealSearch;
 use App\Models\PcPart;
+use App\Models\Url;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Ramsey\Uuid\Uuid;
+use Throwable;
 
 class BrowserDiscoveryService
 {
@@ -20,6 +25,8 @@ class BrowserDiscoveryService
         private readonly PcComponentClassifier $classifier,
         private readonly RetailerProductUrl $productUrls,
         private readonly CatalogTrackingService $tracking,
+        private readonly HardwareEvidenceNormalizer $evidenceNormalizer,
+        private readonly HardwareIdentityIngestionService $identityIngestion,
     ) {}
 
     /** @return array{offer: DealOffer, part: PcPart, product: \App\Models\Product, component_type: ComponentType} */
@@ -42,8 +49,33 @@ class BrowserDiscoveryService
 
         $winner = $this->candidateSelector->select((array) $payload['candidates'], $componentType);
         $user = $this->companionUser();
+        $evidence = $this->evidenceNormalizer->fromArray([
+            'component_type' => $componentType->value,
+            'title' => $title,
+            'manufacturer' => $payload['manufacturer'] ?? null,
+            'model' => $payload['model'] ?? null,
+            'mpn' => $payload['mpn'] ?? null,
+            'part_number' => $payload['part_number'] ?? null,
+            'part_number_type' => filled($payload['mpn'] ?? null) ? 'mpn' : null,
+            'seller_type' => $payload['seller_type'] ?? null,
+            'condition' => $payload['condition'] ?? null,
+            'marketplace' => $payload['marketplace'] ?? null,
+            'bundle' => $payload['bundle'] ?? null,
+        ], [
+            'source' => 'browser_companion',
+            'legacy_part_number' => $payload['part_number'] ?? null,
+            'sku' => $payload['sku'] ?? null,
+        ]);
 
-        return DB::transaction(function () use ($payload, $product, $title, $componentType, $winner, $user): array {
+        // Identity uses its own short transaction so it never inherits locks
+        // held by Browser Radar's core tracking transaction.
+        $identityResult = $this->ingestIdentitySafely(
+            $product,
+            $evidence,
+            seller: isset($payload['seller']) ? (string) $payload['seller'] : null,
+        );
+
+        $result = DB::transaction(function () use ($payload, $product, $title, $componentType, $winner, $user, $evidence, $identityResult): array {
             $searchIdentity = [
                 'user_id' => $user->getKey(),
                 'query' => 'browser-radar:'.$componentType->value,
@@ -126,7 +158,7 @@ class BrowserDiscoveryService
                 $offer->recordPriceSnapshot();
             }
 
-            $part = $this->upsertCatalogPart($payload, $product, $title, $componentType);
+            $part = $this->upsertCatalogPart($payload, $product, $title, $componentType, $evidence, $identityResult?->identity?->getKey());
             $trackedProduct = $this->tracking->trackBrowserDiscovery(
                 $part,
                 $user->getKey(),
@@ -145,6 +177,23 @@ class BrowserDiscoveryService
                 'component_type' => $componentType,
             ];
         });
+
+        /** @var ?Url $trackedUrl */
+        $trackedUrl = $result['product']->urls()->where('url', $product['url'])->first();
+        $this->ingestIdentitySafely(
+            $product,
+            $evidence,
+            part: $result['part'],
+            url: $trackedUrl,
+            offer: $result['offer'],
+            seller: isset($payload['seller']) ? (string) $payload['seller'] : null,
+        );
+
+        $result['offer']->refresh()->load('dealSearch');
+        $result['part']->refresh();
+        $result['product']->refresh();
+
+        return $result;
     }
 
     private function companionUser(): User
@@ -165,46 +214,74 @@ class BrowserDiscoveryService
 
     /**
      * @param  array<string, mixed>  $payload
-     * @param  array{slug: string, store: string, identifier: string, product_key: string, url: string}  $product
+     * @param  array{slug: string, store: string, identifier: string, product_key: string, url: string, identifier_type: string, external_identifier: string, listing_key: string, listing_key_hash: string, normalized_url: string}  $product
      */
     private function upsertCatalogPart(
         array $payload,
         array $product,
         string $title,
         ComponentType $componentType,
+        HardwareEvidence $evidence,
+        ?int $hardwareIdentityId,
     ): PcPart {
         $uuid = Uuid::uuid5(Uuid::NAMESPACE_URL, 'pricebuddy:'.$product['product_key'])->toString();
-        $part = PcPart::query()->where('opendb_id', $uuid)->first()
-            ?? PcPart::query()
-                ->where('component_type', $componentType->value)
-                ->where('name', $title)
-                ->first()
-            ?? PcPart::query()->firstOrCreate(
-                ['opendb_id' => $uuid],
-                [
-                    'component_type' => $componentType->value,
-                    'name' => Str::limit($title, 1024, ''),
-                    'source_url' => $product['url'],
-                ],
-            );
+        $reusedByIdentity = false;
+        $part = PcPart::query()->where('opendb_id', $uuid)->first();
+        if (! $part instanceof PcPart && $hardwareIdentityId !== null) {
+            $identityParts = PcPart::query()
+                ->where('hardware_identity_id', $hardwareIdentityId)
+                ->orderBy('id')
+                ->limit(2)
+                ->get();
+            // Existing duplicates are never collapsed by choosing an arbitrary
+            // first row. A new listing-scoped part keeps that case reviewable.
+            $part = $identityParts->count() === 1 ? $identityParts->first() : null;
+            $reusedByIdentity = $part instanceof PcPart;
+        }
+        $part ??= PcPart::query()->firstOrCreate(
+            ['opendb_id' => $uuid],
+            [
+                'hardware_identity_id' => $hardwareIdentityId,
+                'component_type' => $componentType->value,
+                'name' => Str::limit($title, 1024, ''),
+                'source_url' => $product['url'],
+            ],
+        );
         $part = PcPart::query()->lockForUpdate()->findOrFail($part->getKey());
+        $preserveTrustedIdentityFields = $part->hardware_identity_id !== null
+            && $part->hardware_identity_id !== $hardwareIdentityId;
 
         $retailerUrls = (array) ($part->retailer_urls ?? []);
         $retailerUrls[$product['slug']] = $product['url'];
-        $partNumbers = array_values(array_unique(array_filter([
-            ...(array) ($part->part_numbers ?? []),
-            filled($payload['part_number'] ?? null) ? (string) $payload['part_number'] : null,
-        ])));
+        $partNumbers = $preserveTrustedIdentityFields
+            ? (array) ($part->part_numbers ?? [])
+            : array_values(array_unique(array_filter([
+                ...(array) ($part->part_numbers ?? []),
+                ...$evidence->mpns,
+            ])));
         $specifications = (array) ($part->specifications ?? []);
         $specifications['browser_companion'] = [
             'last_seen_at' => now()->toIso8601String(),
             'retailer_product_key' => $product['product_key'],
+            'identifier_type' => $product['identifier_type'],
+            'external_identifier' => $product['external_identifier'],
+            'mpn' => $payload['mpn'] ?? null,
+            'model' => $payload['model'] ?? null,
+            'sku' => $payload['sku'] ?? null,
+            'legacy_part_number' => $payload['part_number'] ?? null,
         ];
 
         $part->forceFill([
-            'component_type' => $componentType->value,
-            'name' => Str::limit($title, 1024, ''),
-            'manufacturer' => filled($payload['manufacturer'] ?? null)
+            'hardware_identity_id' => $part->hardware_identity_id ?? $hardwareIdentityId,
+            'component_type' => $reusedByIdentity || $preserveTrustedIdentityFields
+                ? $part->component_type
+                : $componentType->value,
+            'name' => $reusedByIdentity || $preserveTrustedIdentityFields
+                ? $part->name
+                : Str::limit($title, 1024, ''),
+            'manufacturer' => ! $preserveTrustedIdentityFields
+                && blank($part->manufacturer)
+                && filled($payload['manufacturer'] ?? null)
                 ? Str::limit((string) $payload['manufacturer'], 255, '')
                 : $part->manufacturer,
             'part_numbers' => $partNumbers,
@@ -215,5 +292,31 @@ class BrowserDiscoveryService
         ])->save();
 
         return $part;
+    }
+
+    /**
+     * Identity is additive enrichment: an internal resolver/schema problem
+     * must never prevent the already-valid Browser Radar observation.
+     *
+     * @param  array<string, mixed>  $listing
+     */
+    private function ingestIdentitySafely(
+        array $listing,
+        HardwareEvidence $evidence,
+        ?PcPart $part = null,
+        ?Url $url = null,
+        ?DealOffer $offer = null,
+        ?string $seller = null,
+    ): ?IdentityIngestionResult {
+        try {
+            return $this->identityIngestion->ingest($listing, $evidence, $part, $url, $offer, $seller);
+        } catch (Throwable $exception) {
+            Log::warning('Hardware identity enrichment failed without blocking Browser Radar.', [
+                'listing_key_hash' => $listing['listing_key_hash'] ?? null,
+                'error' => Str::limit($exception->getMessage(), 300, ''),
+            ]);
+
+            return null;
+        }
     }
 }

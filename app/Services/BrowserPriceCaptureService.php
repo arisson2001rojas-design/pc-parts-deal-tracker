@@ -8,22 +8,16 @@ use Illuminate\Validation\ValidationException;
 
 class BrowserPriceCaptureService
 {
-    private const array PRODUCT_PATTERNS = [
-        'amazon.com' => '~/(?:dp|gp/product|gp/aw/d)/([A-Z0-9]{10})(?:[/?]|$)~i',
-        'walmart.com' => '~/ip/(?:[^/]+/)?([0-9]+)(?:[/?]|$)~i',
-        'microcenter.com' => '~/product/([0-9]+)(?:[/?]|$)~i',
-        'newegg.com' => '~/p/([A-Z0-9-]{8,})(?:[/?]|$)~i',
-        'bestbuy.com' => '~/(?:site/[^/]+/([0-9]+)\.p|product/[^/]+/([A-Z0-9]+))(?:[/?]|$)~i',
-        'gamestop.com' => '~/products/.+/([0-9]+)\.html(?:[/?]|$)~i',
-    ];
-
     /** @var list<string> */
     private const array QUERY_STOP_WORDS = [
         'amd', 'intel', 'nvidia', 'desktop', 'processor', 'graphics', 'card',
         'memory', 'kit', 'solid', 'state', 'drive', 'power', 'supply', 'series',
     ];
 
-    public function __construct(private readonly PriceCandidateSelector $candidateSelector) {}
+    public function __construct(
+        private readonly PriceCandidateSelector $candidateSelector,
+        private readonly RetailerProductUrl $productUrls,
+    ) {}
 
     public function capture(
         DealOffer $offer,
@@ -87,16 +81,17 @@ class BrowserPriceCaptureService
             ]);
         }
 
-        $offerId = $this->productId($offerUrl, $offerHost);
-        $pageId = $this->productId($pageUrl, $pageHost);
+        $offerListing = $this->productUrls->identify($offerUrl);
+        $pageListing = $this->productUrls->identify($pageUrl);
 
-        if ($offerId !== null && $pageId !== null && ! hash_equals($offerId, $pageId)) {
+        if ($offerListing !== null && $pageListing !== null
+            && ! hash_equals($offerListing['listing_key'], $pageListing['listing_key'])) {
             throw ValidationException::withMessages([
                 'page_url' => 'The retailer redirected to a different product.',
             ]);
         }
 
-        return $offerId !== null && $pageId !== null;
+        return $offerListing !== null && $pageListing !== null;
     }
 
     private function sameRetailer(string $firstHost, string $secondHost): bool
@@ -110,24 +105,6 @@ class BrowserPriceCaptureService
         }
 
         return $firstHost === $secondHost;
-    }
-
-    private function productId(string $url, string $host): ?string
-    {
-        foreach (self::PRODUCT_PATTERNS as $domain => $pattern) {
-            if (! $this->hostMatches($host, $domain) || preg_match($pattern, $url, $matches) !== 1) {
-                continue;
-            }
-
-            $identifier = (string) $matches[1];
-            if ($identifier === '') {
-                $identifier = $matches[2] ?? '';
-            }
-
-            return $identifier !== '' ? strtoupper($identifier) : null;
-        }
-
-        return null;
     }
 
     private function titleMatchesSearch(DealOffer $offer, string $title): bool

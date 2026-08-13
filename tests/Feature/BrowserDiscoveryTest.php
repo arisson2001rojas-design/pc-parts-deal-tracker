@@ -2,12 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Enums\ComponentType;
+use App\Enums\IdentityResolutionState;
 use App\Enums\Statuses;
 use App\Models\DealOffer;
 use App\Models\PcPart;
 use App\Models\Product;
+use App\Models\RetailerListing;
 use App\Models\Store;
 use App\Models\User;
+use App\Services\CatalogTrackingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -169,6 +173,8 @@ class BrowserDiscoveryTest extends TestCase
         $this->assertDatabaseCount('products', 1);
         $this->assertDatabaseCount('urls', 2);
         $this->assertDatabaseCount('prices', 2);
+        $this->assertDatabaseCount('hardware_identities', 1);
+        $this->assertDatabaseCount('retailer_listings', 2);
         $this->assertDatabaseHas('deal_offers', [
             'store' => 'Newegg',
             'url' => 'https://www.newegg.com/p/9SIC3U3KN44182',
@@ -177,6 +183,153 @@ class BrowserDiscoveryTest extends TestCase
             'store' => 'Amazon',
             'url' => 'https://www.amazon.com/dp/B0ABC12345',
         ]);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_radar_reuses_a_catalog_part_for_the_same_exact_cross_retailer_hardware(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $this->createStore('Amazon US');
+        $this->createStore('Newegg US');
+        $part = PcPart::factory()->create([
+            'component_type' => ComponentType::Ssd,
+            'name' => 'Samsung 870 QVO 8TB SSD',
+            'manufacturer' => 'Samsung',
+            'series' => '870',
+            'variant' => '8000GB',
+            'part_numbers' => ['MZ-77Q8T0B', 'AM', 'MZ-77Q8T0BW', 'MZ-77Q8T0B/AM'],
+            'retailer_urls' => [
+                'amazon' => 'https://www.amazon.com/dp/B089C3TZL9',
+                'newegg' => 'https://www.newegg.com/p/N82E16820147784',
+            ],
+            'specifications' => [
+                'capacity' => '8TB',
+                'storage_type' => 'SSD',
+                'interface' => 'SATA 6.0 Gb/s',
+                'form_factor' => '2.5"',
+            ],
+        ]);
+        $tracked = app(CatalogTrackingService::class)->track($part, $user->getKey(), ['amazon'], queueRefresh: false);
+        $tracked->setUserPaused(true)->saveQuietly();
+        Queue::fake();
+
+        $payload = $this->payload();
+        $payload['page_url'] = 'https://www.newegg.com/p/N82E16820147784';
+        $payload['title'] = 'Samsung 870 QVO 8TB 2.5 inch SATA III SSD';
+        $payload['manufacturer'] = 'Samsung';
+        $payload['model'] = '870 QVO';
+        $payload['mpn'] = 'MZ-77Q8T0B/AM';
+        $payload['part_number'] = 'MZ-77Q8T0B/AM';
+        $payload['candidates'] = [[
+            'price' => 1399.99,
+            'currency' => 'USD',
+            'source' => 'json_ld',
+            'confidence' => 0.98,
+        ]];
+
+        $response = $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $payload)
+            ->assertCreated();
+
+        $this->assertSame($part->getKey(), $response->json('data.pc_part_id'));
+        $this->assertSame($tracked->getKey(), $response->json('data.product_id'));
+        $this->assertDatabaseCount('hardware_identities', 1);
+        $this->assertDatabaseCount('retailer_listings', 2);
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseCount('urls', 2);
+        $tracked->refresh();
+        $this->assertTrue($tracked->paused);
+        $this->assertTrue($tracked->paused_by_user);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_same_title_without_typed_identity_evidence_stays_separate(): void
+    {
+        Queue::fake();
+        User::factory()->create();
+        $this->createStore('Newegg US');
+        $this->createStore('Amazon US');
+        $neweggPayload = $this->payload();
+        unset($neweggPayload['mpn'], $neweggPayload['model'], $neweggPayload['part_number']);
+
+        $newegg = $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $neweggPayload)
+            ->assertCreated();
+
+        $amazonPayload = $neweggPayload;
+        $amazonPayload['page_url'] = 'https://www.amazon.com/dp/B0ABC12345';
+        $amazon = $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $amazonPayload)
+            ->assertCreated();
+
+        $this->assertNotSame($newegg->json('data.pc_part_id'), $amazon->json('data.pc_part_id'));
+        $this->assertNotSame($newegg->json('data.product_id'), $amazon->json('data.product_id'));
+        $this->assertDatabaseCount('hardware_identities', 0);
+        $this->assertDatabaseCount('retailer_listings', 2);
+        $this->assertDatabaseCount('pc_parts', 2);
+        $this->assertDatabaseCount('products', 2);
+    }
+
+    public function test_conflicting_radar_observation_never_downgrades_a_verified_catalog_part(): void
+    {
+        Queue::fake();
+        User::factory()->create();
+        $this->createStore('Newegg US');
+
+        $first = $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $this->payload())
+            ->assertCreated();
+
+        $part = PcPart::query()->findOrFail($first->json('data.pc_part_id'));
+        $product = Product::query()->findOrFail($first->json('data.product_id'));
+        $identityId = $part->hardware_identity_id;
+        $trusted = [
+            'component_type' => $part->component_type,
+            'name' => $part->name,
+            'manufacturer' => $part->manufacturer,
+            'part_numbers' => $part->part_numbers,
+        ];
+        $productOwnership = $product->only(['id', 'user_id', 'pc_part_id']);
+        $urlsBefore = $product->urls()->orderBy('id')->get(['id', 'product_id', 'url'])->toArray();
+        $pricesBefore = $product->urls()->firstOrFail()->prices()
+            ->orderBy('id')
+            ->get(['id', 'url_id', 'price', 'created_at'])
+            ->toArray();
+
+        $this->assertNotNull($identityId);
+        $conflicting = $this->payload();
+        $conflicting['title'] = 'NVIDIA GeForce RTX 5090 32GB Graphics Card';
+        $conflicting['manufacturer'] = 'NVIDIA';
+        $conflicting['model'] = 'GeForce RTX 5090';
+        $conflicting['mpn'] = 'RTX5090-CONFLICT';
+        $conflicting['part_number'] = 'RTX5090-CONFLICT';
+
+        $second = $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $conflicting)
+            ->assertCreated();
+
+        $part->refresh();
+        $product->refresh();
+        $listing = RetailerListing::query()->sole();
+        $this->assertSame($part->getKey(), $second->json('data.pc_part_id'));
+        $this->assertSame($product->getKey(), $second->json('data.product_id'));
+        $this->assertSame(IdentityResolutionState::Conflicting, $listing->resolution_state);
+        $this->assertSame($identityId, $part->hardware_identity_id);
+        $this->assertSame($trusted['component_type'], $part->component_type);
+        $this->assertSame($trusted['name'], $part->name);
+        $this->assertSame($trusted['manufacturer'], $part->manufacturer);
+        $this->assertSame($trusted['part_numbers'], $part->part_numbers);
+        $this->assertSame($productOwnership, $product->only(['id', 'user_id', 'pc_part_id']));
+        $this->assertSame($urlsBefore, $product->urls()->orderBy('id')->get(['id', 'product_id', 'url'])->toArray());
+        $this->assertSame(
+            $pricesBefore,
+            $product->urls()->firstOrFail()->prices()
+                ->orderBy('id')
+                ->get(['id', 'url_id', 'price', 'created_at'])
+                ->toArray(),
+        );
+        $this->assertDatabaseCount('hardware_identities', 1);
         Queue::assertNothingPushed();
     }
 
@@ -295,6 +448,7 @@ class BrowserDiscoveryTest extends TestCase
         $payload = $this->payload();
         $payload['page_url'] = 'https://www.amazon.com/dp/B0D1234567';
         $payload['title'] = 'AMD Ryzen 5 5600 Desktop Processor';
+        unset($payload['manufacturer'], $payload['mpn'], $payload['model'], $payload['part_number']);
         $payload['candidates'] = [[
             'price' => 89.99,
             'currency' => 'USD',
@@ -368,6 +522,8 @@ class BrowserDiscoveryTest extends TestCase
             'availability' => 'in_stock',
             'seller' => 'SenyTech Global',
             'manufacturer' => 'AMD',
+            'mpn' => '100-000000927',
+            'model' => 'Ryzen 5 5600',
             'part_number' => '100-000000927',
             'candidates' => [
                 [

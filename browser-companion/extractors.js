@@ -219,6 +219,9 @@
     let availability = "unknown";
     let seller = null;
     let manufacturer = null;
+    let mpn = null;
+    let model = null;
+    let sku = null;
     let partNumber = null;
     document.querySelectorAll("script[type='application/ld+json']").forEach((script) => {
       let data;
@@ -228,6 +231,9 @@
         if (!types.includes("Product")) return;
         title ||= typeof item.name === "string" ? item.name : null;
         manufacturer ||= sellerName(item.brand || item.manufacturer);
+        mpn ||= String(item.mpn || "").trim() || null;
+        model ||= String(item.model || "").trim() || null;
+        sku ||= String(item.sku || "").trim() || null;
         partNumber ||= String(item.mpn || item.model || item.sku || "").trim() || null;
         const rawImage = Array.isArray(item.image) ? item.image[0] : item.image;
         image ||= typeof rawImage === "string" ? rawImage : rawImage?.url || null;
@@ -247,7 +253,7 @@
         });
       });
     });
-    return { title, image, availability, seller, manufacturer, partNumber };
+    return { title, image, availability, seller, manufacturer, mpn, model, sku, partNumber };
   }
 
   function extractWalmart(candidates) {
@@ -584,6 +590,9 @@
       availability,
       seller,
       manufacturer: structured.manufacturer,
+      mpn: structured.mpn,
+      model: structured.model,
+      sku: structured.sku,
       part_number: structured.partNumber,
       component_type: componentType,
       supported_product_page: isProductPage(),

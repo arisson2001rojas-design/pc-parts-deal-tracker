@@ -236,6 +236,52 @@ test("builds a valid Newegg SSD Browser Radar discovery", () => {
   }
 });
 
+test("preserves typed JSON-LD identifiers and the legacy part number", () => {
+  const product = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: "Samsung 870 QVO 8TB SATA SSD",
+    brand: { "@type": "Brand", name: "Samsung" },
+    mpn: "MZ-77Q8T0B/AM",
+    model: "870 QVO",
+    sku: "N82E16820147784",
+    offers: {
+      "@type": "Offer",
+      price: "599.99",
+      priceCurrency: "USD",
+      availability: "https://schema.org/InStock"
+    }
+  };
+  const fixtureDocument = {
+    title: product.name,
+    querySelector: () => null,
+    querySelectorAll: (selector) => selector === "script[type='application/ld+json']"
+      ? [{ textContent: JSON.stringify(product) }]
+      : []
+  };
+  const previousDocument = globalThis.document;
+  const previousLocation = globalThis.location;
+  globalThis.document = fixtureDocument;
+  globalThis.location = {
+    hostname: "www.newegg.com",
+    href: "https://www.newegg.com/p/N82E16820147784"
+  };
+
+  try {
+    const result = extract();
+
+    assert.equal(result.mpn, "MZ-77Q8T0B/AM");
+    assert.equal(result.model, "870 QVO");
+    assert.equal(result.sku, "N82E16820147784");
+    assert.equal(result.part_number, "MZ-77Q8T0B/AM");
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousLocation === undefined) delete globalThis.location;
+    else globalThis.location = previousLocation;
+  }
+});
+
 test("recognizes supported component product pages", () => {
   assert.equal(isProductPage("https://www.newegg.com/p/9SIC3U3KN44182"), true);
   assert.equal(isProductPage("https://www.amazon.com/dp/B0D1234567?tag=example"), true);

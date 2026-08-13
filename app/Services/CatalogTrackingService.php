@@ -11,11 +11,19 @@ use App\Models\Store;
 use App\Models\Url;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Throwable;
 
 class CatalogTrackingService
 {
     private const int BROWSER_OBSERVATION_DEDUPLICATION_SECONDS = 300;
+
+    public function __construct(
+        private readonly RetailerProductUrl $retailerProductUrl,
+        private readonly HardwareEvidenceNormalizer $evidenceNormalizer,
+        private readonly HardwareIdentityIngestionService $identityIngestion,
+    ) {}
 
     /**
      * @param  null|array<int, string>  $retailers
@@ -27,13 +35,17 @@ class CatalogTrackingService
         bool $queueRefresh = true,
         bool $respectManualPause = false,
     ): Product {
-        return DB::transaction(fn (): Product => $this->activate(
+        $product = DB::transaction(fn (): Product => $this->activate(
             $part,
             $userId,
             $retailers,
             $queueRefresh,
             respectManualPause: $respectManualPause,
         ));
+        $this->enrichIdentities($part, $product);
+        $product->refresh();
+
+        return $product;
     }
 
     /**
@@ -49,7 +61,7 @@ class CatalogTrackingService
         string $retailer,
         array $observation,
     ): Product {
-        return DB::transaction(function () use ($part, $userId, $retailer, $observation): Product {
+        $product = DB::transaction(function () use ($part, $userId, $retailer, $observation): Product {
             $image = ScrapeUrl::preSaveMaxLength($observation['image_url'] ?? null);
             $product = $this->activate(
                 $part,
@@ -66,6 +78,10 @@ class CatalogTrackingService
 
             return $product->fresh();
         });
+        $this->enrichIdentities($part, $product);
+        $product->refresh();
+
+        return $product;
     }
 
     /**
@@ -152,6 +168,7 @@ class CatalogTrackingService
                 continue;
             }
 
+            /** @var Url $trackedUrl */
             $trackedUrl = $product->urls()->firstOrCreate(
                 ['url' => $url],
                 ['store_id' => $store->getKey(), 'price_factor' => 1]
@@ -230,5 +247,38 @@ class CatalogTrackingService
             'gamestop' => 'gamestop-us',
             default => $retailer,
         };
+    }
+
+    private function enrichIdentity(PcPart $part, Url $url): void
+    {
+        $listing = $this->retailerProductUrl->identify($url->url);
+        if ($listing === null) {
+            return;
+        }
+
+        try {
+            $this->identityIngestion->ingest(
+                $listing,
+                $this->evidenceNormalizer->fromPcPart($part),
+                part: $part,
+                url: $url,
+            );
+        } catch (Throwable $exception) {
+            Log::warning('Hardware identity enrichment failed without blocking catalog tracking.', [
+                'pc_part_id' => $part->getKey(),
+                'url_id' => $url->getKey(),
+                'error' => Str::limit($exception->getMessage(), 300, ''),
+            ]);
+        }
+    }
+
+    private function enrichIdentities(PcPart $part, Product $product): void
+    {
+        /** @var \Illuminate\Database\Eloquent\Collection<int, Url> $urls */
+        $urls = $product->urls()->orderBy('id')->get();
+
+        foreach ($urls as $url) {
+            $this->enrichIdentity($part, $url);
+        }
     }
 }

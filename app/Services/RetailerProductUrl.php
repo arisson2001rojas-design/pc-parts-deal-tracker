@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\Url;
+
 final class RetailerProductUrl
 {
     private const array IDENTIFIER_PATTERNS = [
@@ -13,7 +15,29 @@ final class RetailerProductUrl
         'gamestop' => '~/products/.+/([0-9]+)\.html(?:[/?]|$)~i',
     ];
 
-    /** @return null|array{slug: string, store: string, identifier: string, product_key: string, url: string} */
+    private const array IDENTIFIER_TYPES = [
+        'amazon' => 'asin',
+        'walmart' => 'item_id',
+        'micro-center' => 'sku',
+        'newegg' => 'item_number',
+        'best-buy' => 'sku',
+        'gamestop' => 'sku',
+    ];
+
+    /**
+     * @return null|array{
+     *     slug: string,
+     *     store: string,
+     *     identifier: string,
+     *     product_key: string,
+     *     url: string,
+     *     identifier_type: string,
+     *     external_identifier: string,
+     *     listing_key: string,
+     *     listing_key_hash: string,
+     *     normalized_url: string
+     * }
+     */
     public function identify(string $url): ?array
     {
         $parts = parse_url($url);
@@ -39,13 +63,25 @@ final class RetailerProductUrl
                 return null;
             }
             $identifier = strtoupper($identifier);
+            $identifierType = self::IDENTIFIER_TYPES[$slug] ?? null;
+            if (! is_string($identifierType)) {
+                return null;
+            }
+
+            $canonicalUrl = $this->canonicalUrl((string) $slug, $identifier, $host, $path);
+            $listingKey = $slug.':'.$identifierType.':'.$identifier;
 
             return [
                 'slug' => (string) $slug,
                 'store' => (string) ($retailer['name'] ?? $slug),
                 'identifier' => $identifier,
                 'product_key' => $slug.':'.$identifier,
-                'url' => $this->canonicalUrl((string) $slug, $identifier, $host, $path),
+                'url' => $canonicalUrl,
+                'identifier_type' => $identifierType,
+                'external_identifier' => $identifier,
+                'listing_key' => $listingKey,
+                'listing_key_hash' => hash('sha256', $listingKey),
+                'normalized_url' => Url::normalizeForMatch($canonicalUrl),
             ];
         }
 
