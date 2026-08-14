@@ -8,6 +8,7 @@ use App\Enums\ComponentType;
 use App\Models\DealOffer;
 use App\Models\DealSearch;
 use App\Models\PcPart;
+use App\Models\Product;
 use App\Models\Url;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -66,16 +67,19 @@ class BrowserDiscoveryService
             'legacy_part_number' => $payload['part_number'] ?? null,
             'sku' => $payload['sku'] ?? null,
         ]);
+        $exactTrackedListing = $this->findExactTrackedListing($product, $user);
 
         // Identity uses its own short transaction so it never inherits locks
         // held by Browser Radar's core tracking transaction.
         $identityResult = $this->ingestIdentitySafely(
             $product,
             $evidence,
+            part: $exactTrackedListing['part'] ?? null,
+            url: $exactTrackedListing['url'] ?? null,
             seller: isset($payload['seller']) ? (string) $payload['seller'] : null,
         );
 
-        $result = DB::transaction(function () use ($payload, $product, $title, $componentType, $winner, $user, $evidence, $identityResult): array {
+        $result = DB::transaction(function () use ($payload, $product, $title, $componentType, $winner, $user, $evidence, $identityResult, $exactTrackedListing): array {
             $searchIdentity = [
                 'user_id' => $user->getKey(),
                 'query' => 'browser-radar:'.$componentType->value,
@@ -158,7 +162,15 @@ class BrowserDiscoveryService
                 $offer->recordPriceSnapshot();
             }
 
-            $part = $this->upsertCatalogPart($payload, $product, $title, $componentType, $evidence, $identityResult?->identity?->getKey());
+            $part = $this->upsertCatalogPart(
+                $payload,
+                $product,
+                $title,
+                $componentType,
+                $evidence,
+                $identityResult?->identity?->getKey(),
+                $exactTrackedListing,
+            );
             $trackedProduct = $this->tracking->trackBrowserDiscovery(
                 $part,
                 $user->getKey(),
@@ -178,8 +190,10 @@ class BrowserDiscoveryService
             ];
         });
 
+        $retailerUrls = (array) ($result['part']->retailer_urls ?? []);
+        $trackedUrlValue = $retailerUrls[$product['slug']] ?? $product['url'];
         /** @var ?Url $trackedUrl */
-        $trackedUrl = $result['product']->urls()->where('url', $product['url'])->first();
+        $trackedUrl = $result['product']->urls()->where('url', $trackedUrlValue)->first();
         $this->ingestIdentitySafely(
             $product,
             $evidence,
@@ -215,6 +229,7 @@ class BrowserDiscoveryService
     /**
      * @param  array<string, mixed>  $payload
      * @param  array{slug: string, store: string, identifier: string, product_key: string, url: string, identifier_type: string, external_identifier: string, listing_key: string, listing_key_hash: string, normalized_url: string}  $product
+     * @param  null|array{url: Url, product: Product, part: PcPart}  $exactTrackedListing
      */
     private function upsertCatalogPart(
         array $payload,
@@ -223,10 +238,12 @@ class BrowserDiscoveryService
         ComponentType $componentType,
         HardwareEvidence $evidence,
         ?int $hardwareIdentityId,
+        ?array $exactTrackedListing,
     ): PcPart {
         $uuid = Uuid::uuid5(Uuid::NAMESPACE_URL, 'pricebuddy:'.$product['product_key'])->toString();
+        $reusedByExactListing = $exactTrackedListing !== null;
         $reusedByIdentity = false;
-        $part = PcPart::query()->where('opendb_id', $uuid)->first();
+        $part = $exactTrackedListing['part'] ?? PcPart::query()->where('opendb_id', $uuid)->first();
         if (! $part instanceof PcPart && $hardwareIdentityId !== null) {
             $identityParts = PcPart::query()
                 ->where('hardware_identity_id', $hardwareIdentityId)
@@ -250,16 +267,24 @@ class BrowserDiscoveryService
         $part = PcPart::query()->lockForUpdate()->findOrFail($part->getKey());
         $preserveTrustedIdentityFields = $part->hardware_identity_id !== null
             && $part->hardware_identity_id !== $hardwareIdentityId;
+        $existingSpecifications = (array) ($part->specifications ?? []);
+        $isUnverifiedListingScopedRadarPart = $part->hardware_identity_id === null
+            && $part->opendb_id === $uuid
+            && array_key_exists('browser_companion', $existingSpecifications);
+        $preserveTrustedCatalogFields = $preserveTrustedIdentityFields
+            || ($reusedByExactListing && ! $isUnverifiedListingScopedRadarPart);
 
         $retailerUrls = (array) ($part->retailer_urls ?? []);
-        $retailerUrls[$product['slug']] = $product['url'];
-        $partNumbers = $preserveTrustedIdentityFields
+        $retailerUrls[$product['slug']] = $reusedByExactListing
+            ? (string) $exactTrackedListing['url']->url
+            : $product['url'];
+        $partNumbers = $preserveTrustedCatalogFields
             ? (array) ($part->part_numbers ?? [])
             : array_values(array_unique(array_filter([
                 ...(array) ($part->part_numbers ?? []),
                 ...$evidence->mpns,
             ])));
-        $specifications = (array) ($part->specifications ?? []);
+        $specifications = $existingSpecifications;
         $specifications['browser_companion'] = [
             'last_seen_at' => now()->toIso8601String(),
             'retailer_product_key' => $product['product_key'],
@@ -273,13 +298,13 @@ class BrowserDiscoveryService
 
         $part->forceFill([
             'hardware_identity_id' => $part->hardware_identity_id ?? $hardwareIdentityId,
-            'component_type' => $reusedByIdentity || $preserveTrustedIdentityFields
+            'component_type' => $reusedByIdentity || $preserveTrustedCatalogFields
                 ? $part->component_type
                 : $componentType->value,
-            'name' => $reusedByIdentity || $preserveTrustedIdentityFields
+            'name' => $reusedByIdentity || $preserveTrustedCatalogFields
                 ? $part->name
                 : Str::limit($title, 1024, ''),
-            'manufacturer' => ! $preserveTrustedIdentityFields
+            'manufacturer' => ! $preserveTrustedCatalogFields
                 && blank($part->manufacturer)
                 && filled($payload['manufacturer'] ?? null)
                 ? Str::limit((string) $payload['manufacturer'], 255, '')
@@ -292,6 +317,66 @@ class BrowserDiscoveryService
         ])->save();
 
         return $part;
+    }
+
+    /**
+     * Resolve an already-tracked retailer listing within the companion user's
+     * own products. Exact listing identity and normalized URLs are the only
+     * accepted signals; titles and other fuzzy catalog fields are ignored.
+     *
+     * @param  array{slug: string, store: string, identifier: string, product_key: string, url: string, identifier_type: string, external_identifier: string, listing_key: string, listing_key_hash: string, normalized_url: string}  $listing
+     * @return null|array{url: Url, product: Product, part: PcPart}
+     */
+    private function findExactTrackedListing(array $listing, User $user): ?array
+    {
+        /** @var \Illuminate\Database\Eloquent\Collection<int, Url> $urls */
+        $urls = Url::query()
+            ->whereIn(
+                'product_id',
+                Product::query()->select('id')->where('user_id', $user->getKey()),
+            )
+            ->where(fn (Builder $query): Builder => $query
+                ->where('url_normalized', $listing['normalized_url'])
+                ->orWhereHas(
+                    'listing',
+                    fn (Builder $listingQuery): Builder => $listingQuery
+                        ->where('listing_key_hash', $listing['listing_key_hash']),
+                ))
+            ->orderBy('id')
+            ->get();
+        $productIds = $urls
+            ->map(fn (Url $url): ?int => $url->product_id === null ? null : (int) $url->product_id)
+            ->filter(fn (?int $productId): bool => $productId !== null)
+            ->unique()
+            ->values();
+
+        if ($productIds->count() > 1) {
+            throw ValidationException::withMessages([
+                'page_url' => 'This retailer listing is already tracked by multiple products. Resolve those duplicate products before Browser Radar can record it.',
+            ]);
+        }
+
+        $trackedUrl = $urls->first();
+        if (! $trackedUrl instanceof Url) {
+            return null;
+        }
+
+        $productId = $productIds->first();
+        $trackedProduct = is_int($productId) ? Product::query()->find($productId) : null;
+        $partId = $trackedProduct?->pc_part_id;
+        $trackedPart = is_numeric($partId) ? PcPart::query()->find((int) $partId) : null;
+
+        if (! $trackedProduct instanceof Product || ! $trackedPart instanceof PcPart) {
+            throw ValidationException::withMessages([
+                'page_url' => 'This retailer listing is attached to a product without a PC part. Repair that product before Browser Radar can record it.',
+            ]);
+        }
+
+        return [
+            'url' => $trackedUrl,
+            'product' => $trackedProduct,
+            'part' => $trackedPart,
+        ];
     }
 
     /**
