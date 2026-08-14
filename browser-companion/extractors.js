@@ -118,7 +118,8 @@
   }
 
   function bundleFromTitle(raw) {
-    return /\b(?:bundle|combo)\b/i.test(compactText(raw)) ? true : null;
+    const value = compactText(raw);
+    return /\b(?:bundle|combo|paquete)\b/iu.test(value) ? true : null;
   }
 
   function isRetailerSeller(domain, seller) {
@@ -167,6 +168,30 @@
     if (/\b(?:ram|ddr[345]|so-?dimm|dimm|memory|memoria)\b/i.test(value) && /\b(?:ram|memory|memoria|ddr[345]|so-?dimm|dimm)\b/i.test(value)) return "ram";
     if (/\b(?:cpu|processor|procesador|ryzen|athlon|threadripper|celeron|pentium|core\s+(?:ultra\s+)?[i3579])\b/i.test(value)) return "cpu";
     return null;
+  }
+
+  function strongJoinedComponentType(raw) {
+    const value = compactText(raw);
+    if (value.length < 8 || value.split(/\s+/).length < 2) return null;
+    if (/\b(?:support|supports|supported|compatible|compatibility|soporte|admite)\b/i.test(value)) {
+      return null;
+    }
+
+    const type = detectComponentType(value);
+    if (type === "cpu" && !/\b(?:cpu|processor|procesador|ryzen\s+(?:[3579]\s+)?\d{3,5}[a-z0-9-]*|athlon|threadripper|celeron|pentium|core\s+(?:ultra\s+)?(?:[i3579]\s*)?\d{3,5}[a-z0-9-]*)\b/i.test(value)) {
+      return null;
+    }
+    if (type === "ram" && !/\b(?:ram|memory|memoria|so-?dimm|dimm|\d+\s*gb)\b/i.test(value)) {
+      return null;
+    }
+    return type;
+  }
+
+  function detectBundleComponentTypes(raw) {
+    const segments = compactText(raw).split(/\s*\+\s*/).filter(Boolean);
+    if (segments.length < 2) return [];
+
+    return [...new Set(segments.map(strongJoinedComponentType).filter(Boolean))];
   }
 
   function detectCurrency(raw, hint = "USD") {
@@ -827,6 +852,199 @@
     return null;
   }
 
+  function amazonScopedAsin(element) {
+    const direct = compactText(element?.getAttribute?.("data-csa-c-asin"));
+    if (direct) return direct.toUpperCase();
+
+    const ancestor = element?.closest?.("[data-csa-c-asin]");
+    const inherited = compactText(ancestor?.getAttribute?.("data-csa-c-asin"));
+    return inherited ? inherited.toUpperCase() : null;
+  }
+
+  function amazonAsinMatches(element, asin) {
+    const scopedAsin = amazonScopedAsin(element);
+    return !asin || !scopedAsin || scopedAsin === asin;
+  }
+
+  function amazonSecondaryOfferFeature(element) {
+    const id = compactText(element?.id || element?.getAttribute?.("id"));
+    return /^uod/i.test(id)
+      || Boolean(element?.closest?.("[id^='uod'], [id^='UOD']"));
+  }
+
+  function amazonOfferDisplayLabelRoles(raw) {
+    const segments = compactText(raw)
+      .split(/\s*\/\s*/)
+      .map((segment) => segment.replace(/[:：]+$/, "").trim())
+      .filter(Boolean);
+    const sellerPattern = /^(?:sold by|seller|vendido por|vendedor)$/i;
+    const fulfillmentPattern = /^(?:ships? from|fulfilled by|shipper|remitente|enviado por|enviado desde)$/i;
+
+    return {
+      seller: segments.some((segment) => sellerPattern.test(segment)),
+      fulfillment: segments.some((segment) => fulfillmentPattern.test(segment))
+    };
+  }
+
+  function amazonOfferDisplayFeature(scope, rowSelector, asin) {
+    const row = scope.querySelector?.(rowSelector);
+    if (!row || amazonNoise(row) || amazonSecondaryOfferFeature(row)
+        || !amazonAsinMatches(row, asin)) return null;
+
+    const labelElement = firstElement([
+      ".offer-display-feature-label",
+      ".offer-display-feature-label-text"
+    ], row);
+    const valueElement = row.querySelector?.(".offer-display-feature-text-message");
+    if (!valueElement || amazonSecondaryOfferFeature(valueElement)
+        || !amazonAsinMatches(valueElement, asin)) return null;
+    const value = compactText(valueElement.textContent);
+    if (!value) return null;
+
+    let label = compactText(
+      labelElement?.textContent
+      || row.getAttribute?.("data-csa-c-label")
+      || row.getAttribute?.("aria-label")
+    );
+    if (!label) {
+      const rowText = compactText(row.textContent);
+      const valueIndex = rowText.lastIndexOf(value);
+      if (valueIndex >= 0) {
+        label = compactText(`${rowText.slice(0, valueIndex)} ${rowText.slice(valueIndex + value.length)}`);
+      }
+    }
+    const defaultSeller = rowSelector === "#merchantInfoFeature_feature_div";
+    const roles = label
+      ? amazonOfferDisplayLabelRoles(label)
+      : { seller: defaultSeller, fulfillment: !defaultSeller };
+    if (!roles.seller && !roles.fulfillment) return null;
+
+    return { value, ...roles };
+  }
+
+  function amazonOfferDisplayObservation(asin, root = document) {
+    const selectors = [
+      "#desktop_qualifiedBuyBox #offer-display-features",
+      "#offerDisplayFeatures_desktop #offer-display-features",
+      "#offer-display-features"
+    ];
+    const seen = new Set();
+
+    for (const selector of selectors) {
+      const matches = [...(root.querySelectorAll?.(selector) || [])];
+      if (matches.length === 0) {
+        const match = root.querySelector?.(selector);
+        if (match) matches.push(match);
+      }
+
+      for (const scope of matches) {
+        if (seen.has(scope) || amazonNoise(scope) || !amazonAsinMatches(scope, asin)) continue;
+        seen.add(scope);
+
+        const merchantFeature = amazonOfferDisplayFeature(
+          scope,
+          "#merchantInfoFeature_feature_div",
+          asin
+        );
+        const fulfillerFeature = amazonOfferDisplayFeature(
+          scope,
+          "#fulfillerInfoFeature_feature_div",
+          asin
+        );
+        const seller = merchantFeature?.seller
+          ? merchantFeature.value
+          : fulfillerFeature?.seller
+            ? fulfillerFeature.value
+            : "";
+        const fulfillment = fulfillerFeature?.fulfillment
+          ? fulfillerFeature.value
+          : merchantFeature?.fulfillment
+            ? merchantFeature.value
+            : "";
+        if (seller || fulfillment) return { seller, fulfillment };
+      }
+    }
+
+    return null;
+  }
+
+  function amazonCurrentVariationBundle(asin, root = document) {
+    const selectors = ["#variation_pattern_name", "#variation_style_name"];
+    const labelPattern = /^(?:pattern name|nombre del patr[oó]n|style|estilo)\s*:?$/iu;
+    const bundlePattern = /\b(?:bundle|combo|paquete)\b/iu;
+
+    for (const selector of selectors) {
+      const elements = [...(root.querySelectorAll?.(selector) || [])];
+      if (elements.length === 0) {
+        const element = root.querySelector?.(selector);
+        if (element) elements.push(element);
+      }
+
+      for (const element of elements) {
+        if (amazonNoise(element) || amazonSecondaryOfferFeature(element)
+            || !amazonAsinMatches(element, asin)) continue;
+
+        const labelElement = firstElement([".a-form-label", ".variation-label"], element);
+        const valueElement = firstElement([".selection", ".variation-value"], element);
+        let label = compactText(labelElement?.textContent);
+        let value = compactText(valueElement?.textContent);
+        const text = compactText(element.textContent);
+
+        if (!value) {
+          const match = text.match(
+            /^(pattern name|nombre del patr[oó]n|style|estilo)\s*:\s*(.+)$/iu
+          );
+          if (match) {
+            label ||= compactText(match[1]);
+            value = compactText(match[2]);
+          } else if (!label) {
+            value = text;
+          }
+        }
+
+        if (label && !labelPattern.test(label)) continue;
+        if (bundlePattern.test(value)) return true;
+      }
+    }
+
+    return null;
+  }
+
+  function amazonSellerProfileSignals(profileElement, asin) {
+    const href = profileElement?.getAttribute?.("href") || profileElement?.href || "";
+    if (!href) return { href, matches: true, stronglyMatches: false, amazonFulfilled: false };
+
+    let url;
+    try {
+      url = new URL(href, location.href);
+    } catch (_error) {
+      return { href, matches: true, stronglyMatches: false, amazonFulfilled: false };
+    }
+
+    const parameter = (name) => [...url.searchParams.entries()]
+      .find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1] || "";
+    const hrefAsin = compactText(parameter("asin")).toUpperCase() || null;
+    const scopedAsin = amazonScopedAsin(profileElement);
+    const hrefMatches = !asin || !hrefAsin || hrefAsin === asin;
+    const scopeMatches = !asin || !scopedAsin || scopedAsin === asin;
+    const matches = hrefMatches && scopeMatches;
+    const activeBuyBox = Boolean(profileElement?.closest?.(
+      "#desktop_qualifiedBuyBox, #offerDisplayFeatures_desktop, #buybox, #buybox_feature_div"
+    ));
+    const stronglyMatches = matches && Boolean(
+      (asin && hrefAsin === asin)
+      || (asin && scopedAsin === asin)
+      || activeBuyBox
+    );
+
+    return {
+      href,
+      matches,
+      stronglyMatches,
+      amazonFulfilled: stronglyMatches && parameter("isAmazonFulfilled") === "1"
+    };
+  }
+
   function amazonTabularValue(kind) {
     const labelPattern = kind === "seller"
       ? /^(?:sold by|seller|vendido por|vendedor)$/i
@@ -877,30 +1095,44 @@
     const merchantElement = document.querySelector?.("#merchant-info");
     const merchantRaw = merchantElement?.textContent || "";
     const profileElement = document.querySelector?.("#sellerProfileTriggerId");
-    const profileRaw = profileElement?.textContent?.trim() || "";
-    const profileHref = profileElement?.getAttribute?.("href") || profileElement?.href || "";
+    const currentAsin = amazonPrimary?.asin || amazonAsinFromUrl();
+    const offerDisplay = amazonOfferDisplayObservation(currentAsin);
+    const profileSignals = amazonSellerProfileSignals(profileElement, currentAsin);
+    const profileRaw = profileSignals.matches ? profileElement?.textContent?.trim() || "" : "";
+    const profileHref = profileSignals.matches ? profileSignals.href : "";
+    const displaySeller = offerDisplay?.seller || "";
     const tabularSeller = amazonTabularValue("seller");
     const merchantSeller = amazonMerchantValue(merchantRaw, "seller");
-    const rawSeller = tabularSeller || merchantSeller || profileRaw || "";
+    const rawSeller = displaySeller || tabularSeller || merchantSeller || profileRaw || "";
     const normalizedSeller = sellerName(rawSeller);
     const marketplaceSignal = /[?&]seller=/i.test(profileHref)
       || Boolean(normalizedSeller && !isRetailerSeller("amazon.com", normalizedSeller));
     const currentSellerType = sellerType("amazon.com", normalizedSeller, marketplaceSignal);
+    const displayFulfillment = offerDisplay?.fulfillment || "";
     const tabularFulfillment = amazonTabularValue("fulfillment");
     const merchantFulfillment = amazonMerchantValue(merchantRaw, "fulfillment");
-    const fulfillmentRaw = tabularFulfillment || merchantFulfillment;
+    const profileFulfillment = profileSignals.amazonFulfilled ? "Amazon" : "";
+    const fulfillmentRaw = displayFulfillment
+      || tabularFulfillment
+      || merchantFulfillment
+      || profileFulfillment;
     const fulfillmentType = normalizedFulfillmentType(
       "amazon.com",
       fulfillmentRaw,
       currentSellerType,
       normalizedSeller
     );
-    const explicitConditionElement = firstElement([
+    const conditionElement = firstElement([
       "#condition",
       "#condition-value",
       "#offerCondition",
       "#renewedProgramDescription"
     ]);
+    const explicitConditionElement = conditionElement
+      && !amazonSecondaryOfferFeature(conditionElement)
+      && amazonAsinMatches(conditionElement, currentAsin)
+      ? conditionElement
+      : null;
     let conditionRaw = explicitConditionElement?.textContent?.trim() || "";
     if (!conditionRaw && /\b(?:amazon\s+)?renewed\b|\brefurbished\b|\bopen[ -]?box\b|\bpre[ -]?owned\b|\bused\b/i.test(title || "")) {
       conditionRaw = title;
@@ -931,24 +1163,30 @@
       evidence_quality: reliable ? "reliable" : "ambiguous",
       bundle: structured.bundle,
       offer_evidence: {
-        source: "amazon_buy_box",
-        seller_source: tabularSeller
-          ? "amazon_tabular_buy_box"
-          : merchantSeller
-            ? "amazon_merchant_info"
-            : profileRaw
-              ? "amazon_seller_profile"
-              : "unknown",
+        source: offerDisplay ? "amazon_offer_display_features" : "amazon_buy_box",
+        seller_source: displaySeller
+          ? "amazon_offer_display_features"
+          : tabularSeller
+            ? "amazon_tabular_buy_box"
+            : merchantSeller
+              ? "amazon_merchant_info"
+              : profileRaw
+                ? "amazon_seller_profile"
+                : "unknown",
         condition_source: explicitConditionElement
           ? "amazon_buy_box"
           : conditionRaw
             ? "amazon_title"
             : "unknown",
-        fulfillment_source: tabularFulfillment
-          ? "amazon_tabular_buy_box"
-          : merchantFulfillment
-            ? "amazon_merchant_info"
-            : "unknown",
+        fulfillment_source: displayFulfillment
+          ? "amazon_offer_display_features"
+          : tabularFulfillment
+            ? "amazon_tabular_buy_box"
+            : merchantFulfillment
+              ? "amazon_merchant_info"
+              : profileFulfillment
+                ? "amazon_seller_profile_href"
+                : "unknown",
         conflict: null
       }
     });
@@ -996,6 +1234,9 @@
     const structured = extractJsonLd(candidates);
     const embedded = domain === "walmart.com" ? extractWalmart(candidates) : {};
     const amazonPrimary = domain === "amazon.com" ? extractAmazonPrimary() : null;
+    const amazonVariationBundle = domain === "amazon.com"
+      ? amazonCurrentVariationBundle(amazonPrimary?.asin || amazonAsinFromUrl())
+      : null;
     const neweggPrimary = domain === "newegg.com" ? neweggPrimaryOffer() : null;
 
     [
@@ -1072,7 +1313,12 @@
           ? neweggPrimary.observation
           : genericOfferObservation(domain, structured, availability);
 
-    if (offer.bundle === null) offer.bundle = bundleFromTitle(title);
+    const titleBundle = bundleFromTitle(title);
+    const amazonMixedComponentBundle = domain === "amazon.com"
+      && detectBundleComponentTypes(title).length >= 2;
+    if (amazonVariationBundle === true || titleBundle === true || amazonMixedComponentBundle) {
+      offer.bundle = true;
+    }
 
     if (offer.purchasability === "buying_choices_only") availability = "unknown";
     if (offer.purchasability === "unavailable") availability = "out_of_stock";
@@ -1106,9 +1352,12 @@
     __testing: {
       elementText,
       amazonAsinFromUrl,
+      amazonCurrentVariationBundle,
       amazonPriceText,
       amazonProductTitle,
       amazonVisible,
+      bundleFromTitle,
+      detectBundleComponentTypes,
       neweggPrimaryOffer,
       normalizeAvailability,
       normalizeCondition,
