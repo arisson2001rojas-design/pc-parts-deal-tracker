@@ -2,11 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\FulfillmentType;
+use App\Enums\OfferCondition;
+use App\Enums\OfferEvidenceQuality;
+use App\Enums\OfferPurchasability;
+use App\Enums\OfferScope;
+use App\Enums\SellerType;
 use App\Models\DealOffer;
 use App\Services\BrowserPriceCaptureService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule;
 
 class BrowserPriceCaptureController extends Controller
 {
@@ -23,6 +30,20 @@ class BrowserPriceCaptureController extends Controller
             'image_url' => ['nullable', 'url:http,https', 'max:4096'],
             'availability' => ['nullable', 'in:in_stock,out_of_stock,unknown'],
             'seller' => ['nullable', 'string', 'max:255'],
+            'seller_type' => ['nullable', Rule::enum(SellerType::class)],
+            'condition' => ['nullable', Rule::enum(OfferCondition::class)],
+            'marketplace' => ['nullable', 'boolean'],
+            'bundle' => ['nullable', 'boolean'],
+            'offer_scope' => ['nullable', Rule::enum(OfferScope::class)],
+            'purchasability' => ['nullable', Rule::enum(OfferPurchasability::class)],
+            'fulfillment_type' => ['nullable', Rule::enum(FulfillmentType::class)],
+            'evidence_quality' => ['nullable', Rule::enum(OfferEvidenceQuality::class)],
+            'offer_evidence' => ['nullable', 'array', 'max:8'],
+            'offer_evidence.source' => ['nullable', 'string', 'max:80'],
+            'offer_evidence.seller_source' => ['nullable', 'string', 'max:80'],
+            'offer_evidence.condition_source' => ['nullable', 'string', 'max:80'],
+            'offer_evidence.fulfillment_source' => ['nullable', 'string', 'max:80'],
+            'offer_evidence.conflict' => ['nullable', 'string', 'max:120'],
             'candidates' => ['required', 'array', 'min:1', 'max:20'],
             'candidates.*.price' => ['required', 'numeric', 'gt:0', 'max:100000000'],
             'candidates.*.currency' => ['required', 'string', 'size:3'],

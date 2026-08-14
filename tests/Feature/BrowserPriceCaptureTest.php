@@ -32,6 +32,7 @@ class BrowserPriceCaptureTest extends TestCase
                 'image_url' => 'https://c1.neweggimages.com/productimage.jpg',
                 'availability' => 'in_stock',
                 'seller' => 'Newegg',
+                ...$this->comparableOfferIntegrity(),
                 'candidates' => [
                     ['price' => 159.99, 'currency' => 'USD', 'source' => 'site_specific', 'confidence' => 0.98],
                     ['price' => 159.99, 'currency' => 'USD', 'source' => 'meta', 'confidence' => 0.88],
@@ -63,6 +64,8 @@ class BrowserPriceCaptureTest extends TestCase
             'page_url' => 'https://www.newegg.com/p/N82E16819113941',
             'title' => 'AMD Ryzen 7 7700X3D Desktop Processor',
             'availability' => 'in_stock',
+            'seller' => 'Newegg',
+            ...$this->comparableOfferIntegrity(),
             'candidates' => [
                 ['price' => 329, 'currency' => 'USD', 'source' => 'site_specific', 'confidence' => 0.98],
             ],
@@ -81,6 +84,39 @@ class BrowserPriceCaptureTest extends TestCase
             [329.0, 299.0],
             $offer->priceSnapshots()->orderBy('id')->pluck('price')->map(fn ($price): float => (float) $price)->all(),
         );
+    }
+
+    public function test_marketplace_browser_capture_is_observed_but_not_verified_for_comparison(): void
+    {
+        $offer = $this->offer();
+
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson($this->signedUrl($offer), [
+                'page_url' => 'https://www.newegg.com/p/N82E16819113941',
+                'title' => 'AMD Ryzen 7 7700X3D Desktop Processor',
+                'availability' => 'in_stock',
+                'seller' => 'Marketplace Seller',
+                'seller_type' => 'marketplace',
+                'condition' => 'new',
+                'offer_scope' => 'primary',
+                'purchasability' => 'active',
+                'fulfillment_type' => 'seller',
+                'evidence_quality' => 'reliable',
+                'bundle' => false,
+                'candidates' => [
+                    ['price' => 149.99, 'currency' => 'USD', 'source' => 'site_specific', 'confidence' => 0.98],
+                ],
+            ])
+            ->assertOk();
+
+        $offer->refresh();
+        $this->assertTrue($offer->hasObservedPrice());
+        $this->assertFalse($offer->hasVerifiedPrice());
+        $this->assertDatabaseHas('deal_offer_prices', [
+            'deal_offer_id' => $offer->getKey(),
+            'seller' => 'Marketplace Seller',
+            'comparison_eligible' => false,
+        ]);
     }
 
     public function test_the_same_price_is_not_duplicated_when_the_verification_source_changes(): void
@@ -189,6 +225,20 @@ class BrowserPriceCaptureTest extends TestCase
             'source' => 'web_index',
             'fetched_at' => now(),
         ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function comparableOfferIntegrity(): array
+    {
+        return [
+            'seller_type' => 'retailer',
+            'condition' => 'new',
+            'offer_scope' => 'primary',
+            'purchasability' => 'active',
+            'fulfillment_type' => 'retailer',
+            'evidence_quality' => 'reliable',
+            'bundle' => false,
+        ];
     }
 
     private function signedUrl(DealOffer $offer): string

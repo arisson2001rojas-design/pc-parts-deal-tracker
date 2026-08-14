@@ -44,6 +44,92 @@
   };
 
   const EXCLUDED = /coupon|savings?|list[-_ ]?price|regular[-_ ]?price|was[-_ ]?price|installment|monthly|per[-_ ]?month|affirm|klarna|afterpay|trade[-_ ]?in|rebate/i;
+  const MARKETPLACE_DOMAINS = new Set([
+    "amazon.com",
+    "walmart.com",
+    "newegg.com",
+    "bestbuy.com"
+  ]);
+  const RETAILER_SELLERS = {
+    "amazon.com": /^(?:amazon(?:\.com)?|amazon\.com services(?:,? inc\.?)?)$/i,
+    "walmart.com": /^(?:walmart(?:\.com)?)$/i,
+    "microcenter.com": /^(?:micro\s*center)$/i,
+    "newegg.com": /^(?:newegg(?:\.com)?)$/i,
+    "bestbuy.com": /^(?:best\s*buy(?:\.com)?)$/i,
+    "gamestop.com": /^(?:game\s*stop(?:\.com)?)$/i
+  };
+  const CONDITION_VALUES = new Set([
+    "new",
+    "used",
+    "preowned",
+    "renewed",
+    "refurbished",
+    "open_box",
+    "unknown"
+  ]);
+
+  function compactText(raw) {
+    return String(raw || "").normalize("NFKC").replace(/\s+/g, " ").trim();
+  }
+
+  function sellerName(raw) {
+    const source = typeof raw === "string"
+      ? raw
+      : raw && typeof raw === "object"
+        ? raw.name || raw.legalName || ""
+        : "";
+    let value = compactText(source);
+    if (!value || value.length > 255) return null;
+
+    const generic = /^(?:seller|vendor|merchant|vendedor|vendedora|seller information|seller info|seller details|seller profile|informaci(?:o|\u00f3|\u00c3\u00b3)n (?:acerca )?del vendedor|sold by|vendido por)$/iu;
+    const actionThenSeller = /\b(?:learn|see|view|visit|read|more|details?|information|info|about|m(?:a|\u00e1|\u00c3\u00a1)s|informaci(?:o|\u00f3|\u00c3\u00b3)n)\b.*\b(?:seller|vendor|merchant|vendedor|vendedora)\b/iu;
+    const sellerThenAction = /\b(?:seller|vendor|merchant|vendedor|vendedora)\b.*\b(?:information|info|details?|profile|learn|more|link|button|window|informaci(?:o|\u00f3|\u00c3\u00b3)n)\b/iu;
+    const navigation = /^(?:learn more|more information|click here|read more|opens? in (?:a )?new (?:tab|window)|link|button|visit (?:the )?(?:store|profile)|m(?:a|\u00e1|\u00c3\u00a1)s informaci(?:o|\u00f3|\u00c3\u00b3)n)$/iu;
+    const mixedOfferText = /\b(?:ships?\s+from|shipped\s+by|fulfilled\s+by|sold\s+and\s+shipped|returns?|delivery|enviado\s+por|devoluciones?)\b/iu;
+    const priceLike = /^(?:us\s*)?[$€£]?\s*\d[\d,.]*(?:\s*(?:usd|cad|aud|eur|gbp))?$/iu;
+    const explicitCurrencyPriceLike = /^(?:usd|cad|aud|eur|gbp|crc|us)\s*\d[\d,.]*(?:\s*(?:usd|cad|aud|eur|gbp|crc))?$/iu;
+    if (generic.test(value) || actionThenSeller.test(value) || sellerThenAction.test(value) || navigation.test(value)
+        || mixedOfferText.test(value) || /https?:\/\/|www\./i.test(value)
+        || /^(?:accessibility|navigation|menu)$/iu.test(value)
+        || priceLike.test(value) || explicitCurrencyPriceLike.test(value) || /^[\p{P}\p{S}\s]+$/u.test(value)) {
+      return null;
+    }
+
+    value = value.replace(/^(?:sold\s+by|vendido\s+por)\s*[:\-]?\s*/iu, "").trim();
+    return value && !generic.test(value) ? value.slice(0, 255) : null;
+  }
+
+  function normalizeCondition(raw) {
+    const value = compactText(raw).toLowerCase().replaceAll("_", " ");
+    if (!value) return "unknown";
+    if (/\b(?:open[ -]?box|caja\s+abierta)\b/i.test(value)) return "open_box";
+    if (/\b(?:pre[ -]?owned|seminuevo|segunda\s+mano)\b/i.test(value)) return "preowned";
+    if (/\b(?:renewed|renovado)\b/i.test(value)) return "renewed";
+    if (/\b(?:refurbished|refurb|reconditioned|reacondicionado)\b|refurbishedcondition/i.test(value)) return "refurbished";
+    if (/\b(?:used|usado)\b|usedcondition/i.test(value)) return "used";
+    if (/\b(?:new condition|condition:?\s*new|buy\s+new|nuevo|new)\b|newcondition/i.test(value)) return "new";
+    return "unknown";
+  }
+
+  function normalizeBundle(raw) {
+    if (raw === true || raw === "true") return true;
+    if (raw === false || raw === "false") return false;
+    return null;
+  }
+
+  function bundleFromTitle(raw) {
+    return /\b(?:bundle|combo)\b/i.test(compactText(raw)) ? true : null;
+  }
+
+  function isRetailerSeller(domain, seller) {
+    return Boolean(seller && RETAILER_SELLERS[domain]?.test(seller));
+  }
+
+  function sellerType(domain, seller, marketplaceSignal = false) {
+    if (isRetailerSeller(domain, seller)) return "retailer";
+    if (marketplaceSignal || (seller && MARKETPLACE_DOMAINS.has(domain))) return "marketplace";
+    return "unknown";
+  }
 
   function domainFor(hostname) {
     const host = hostname.toLowerCase().replace(/^www\./, "");
@@ -99,16 +185,11 @@
     if (/out\s*of\s*stock|sold\s*out|unavailable|not\s*available|agotado|sin\s*existencias/.test(value)) {
       return "out_of_stock";
     }
-    if (/in\s*stock|limited\s*stock|available|disponible|preorder/.test(value)) {
+    if (/\bpre[ -]?order\b/.test(value)) return "unknown";
+    if (/in\s*stock|limited\s*stock|available|disponible/.test(value)) {
       return "in_stock";
     }
     return "unknown";
-  }
-
-  function sellerName(raw) {
-    if (typeof raw === "string") return raw.trim() || null;
-    if (raw && typeof raw === "object") return String(raw.name || raw.legalName || "").trim() || null;
-    return null;
   }
 
   function parseAmount(raw) {
@@ -147,36 +228,156 @@
     return element.textContent?.trim() || "";
   }
 
+  function normalizedFulfillmentType(domain, raw, currentSellerType, seller) {
+    const value = compactText(raw);
+    if (!value) return "unknown";
+    if (RETAILER_SELLERS[domain]?.test(value)
+        || (domain === "amazon.com" && /\bamazon(?:\.com)?\b/i.test(value))
+        || (domain === "walmart.com" && /\bwalmart(?:\.com)?\b/i.test(value))
+        || (domain === "newegg.com" && /\bnewegg(?:\.com)?\b/i.test(value))) {
+      return currentSellerType === "marketplace" ? "platform" : "retailer";
+    }
+    if (seller && value.toLowerCase().includes(seller.toLowerCase())) return "seller";
+    if (/\b(?:seller|merchant|vendedor|third[ -]?party)\b/i.test(value)) return "seller";
+    return "unknown";
+  }
+
+  function offerObservation(domain, values = {}) {
+    const rawSeller = typeof values.seller === "string" ? values.seller : sellerName(values.seller);
+    const seller = sellerName(rawSeller);
+    const sellerRejected = values.seller_rejected === true
+      || (Boolean(compactText(rawSeller)) && !seller);
+    const inferredSellerType = ["retailer", "marketplace", "unknown"].includes(values.seller_type)
+      ? values.seller_type
+      : sellerType(domain, seller, values.marketplace_signal === true);
+    const condition = CONDITION_VALUES.has(values.condition)
+      ? values.condition
+      : normalizeCondition(values.condition);
+    const offerScope = ["primary", "secondary", "none", "unknown"].includes(values.offer_scope)
+      ? values.offer_scope
+      : "unknown";
+    const purchasability = ["active", "buying_choices_only", "unavailable", "unknown"].includes(values.purchasability)
+      ? values.purchasability
+      : "unknown";
+    const fulfillmentType = ["retailer", "platform", "seller", "unknown"].includes(values.fulfillment_type)
+      ? values.fulfillment_type
+      : "unknown";
+    let evidenceQuality = ["reliable", "ambiguous", "invalid"].includes(values.evidence_quality)
+      ? values.evidence_quality
+      : "ambiguous";
+    if (sellerRejected) evidenceQuality = "invalid";
+
+    const evidence = values.offer_evidence || {};
+    return {
+      seller,
+      seller_type: inferredSellerType,
+      marketplace: inferredSellerType === "marketplace"
+        ? true
+        : inferredSellerType === "retailer"
+          ? false
+          : null,
+      condition,
+      offer_scope: offerScope,
+      purchasability,
+      fulfillment_type: fulfillmentType,
+      evidence_quality: evidenceQuality,
+      bundle: normalizeBundle(values.bundle),
+      offer_evidence: {
+        source: compactText(evidence.source || "generic").slice(0, 64),
+        seller_source: compactText(evidence.seller_source || "unknown").slice(0, 64),
+        condition_source: compactText(evidence.condition_source || "unknown").slice(0, 64),
+        fulfillment_source: compactText(evidence.fulfillment_source || "unknown").slice(0, 64),
+        conflict: sellerRejected
+          ? "seller_boilerplate"
+          : compactText(evidence.conflict || "").slice(0, 64) || null
+      }
+    };
+  }
+
   function neweggPrimaryOffer(root = document) {
     const buyBox = root.querySelector?.(".product-buy-box");
     if (!buyBox) return null;
 
     const panes = [...buyBox.querySelectorAll(".product-pane")];
+    const selectedPane = panes.find((pane) => pane.querySelector?.(
+      "input[type='radio']:checked, [aria-checked='true'], .is-selected"
+    ));
     const labelledNewPane = panes.find((pane) => {
       const label = pane.querySelector?.(".form-radiobox-title")?.textContent?.trim();
       return /^buy new$/i.test(label || "");
     });
-    const newPane = labelledNewPane || (
-      panes.length === 1 && !panes[0].querySelector?.(".form-radiobox-title") ? panes[0] : null
-    );
-    if (!newPane) return null;
+    const offerPane = labelledNewPane || selectedPane || (panes.length === 1 ? panes[0] : null);
+    if (!offerPane) {
+      return {
+        raw: "",
+        price: null,
+        availability: normalizeAvailability(buyBox.textContent),
+        observation: offerObservation("newegg.com", {
+          offer_scope: "secondary",
+          purchasability: "buying_choices_only",
+          evidence_quality: "ambiguous",
+          offer_evidence: { source: "newegg_buy_box", conflict: "multiple_unscoped_offers" }
+        })
+      };
+    }
 
-    const priceElement = [...newPane.querySelectorAll(
+    const priceElement = [...offerPane.querySelectorAll(
       ".price-current_2026, .price-current, [data-pp-amount]"
     )].find((element) => parseAmount(elementText(element)) !== null);
-    if (!priceElement) return null;
-
-    const raw = elementText(priceElement);
-    const addToCart = buyBox.querySelector?.("button.btn-primary.btn-wide, .btn-primary.btn-wide");
+    const raw = priceElement ? elementText(priceElement) : "";
+    const label = offerPane.querySelector?.(".form-radiobox-title")?.textContent?.trim() || "";
+    const condition = normalizeCondition(label);
+    const sellerElement = firstElement([
+      "[data-testid='seller-name']",
+      ".product-seller a",
+      ".product-seller-info a",
+      ".product-seller",
+      ".product-seller-info"
+    ], offerPane);
+    const rawSeller = sellerElement?.textContent?.trim() || "";
+    const normalizedSeller = sellerName(rawSeller);
+    const currentSellerType = sellerType("newegg.com", normalizedSeller);
+    const fulfillmentElement = firstElement([
+      "[data-testid='fulfillment-message']",
+      ".product-fulfillment",
+      ".product-seller-info"
+    ], offerPane);
+    const fulfillmentRaw = fulfillmentElement?.textContent?.trim() || "";
+    const fulfillmentType = normalizedFulfillmentType(
+      "newegg.com",
+      fulfillmentRaw,
+      currentSellerType,
+      normalizedSeller
+    );
+    const addToCart = offerPane.querySelector?.("button.btn-primary.btn-wide, .btn-primary.btn-wide")
+      || buyBox.querySelector?.("button.btn-primary.btn-wide, .btn-primary.btn-wide");
     const canBuy = addToCart
       && /add to cart/i.test(addToCart.textContent || "")
       && !addToCart.disabled
       && addToCart.getAttribute?.("aria-disabled") !== "true";
+    const availability = canBuy ? "in_stock" : normalizeAvailability(offerPane.textContent);
+    const reliable = Boolean(priceElement && canBuy && condition !== "unknown" && currentSellerType !== "unknown");
 
     return {
       raw,
       price: parseAmount(raw),
-      availability: canBuy ? "in_stock" : normalizeAvailability(newPane.textContent)
+      availability,
+      observation: offerObservation("newegg.com", {
+        seller: rawSeller,
+        seller_type: currentSellerType,
+        condition,
+        offer_scope: priceElement ? "primary" : "none",
+        purchasability: canBuy ? "active" : availability === "out_of_stock" ? "unavailable" : "unknown",
+        fulfillment_type: fulfillmentType,
+        evidence_quality: reliable ? "reliable" : "ambiguous",
+        bundle: null,
+        offer_evidence: {
+          source: condition === "new" || !label ? "newegg_buy_new" : "newegg_buy_box",
+          seller_source: rawSeller ? "newegg_offer_pane" : "unknown",
+          condition_source: label ? "newegg_offer_label" : "unknown",
+          fulfillment_source: fulfillmentRaw ? "newegg_offer_pane" : "unknown"
+        }
+      })
     };
   }
 
@@ -223,6 +424,11 @@
     let model = null;
     let sku = null;
     let partNumber = null;
+    let condition = "unknown";
+    let bundle = null;
+    let offerCount = 0;
+    let offerConflict = null;
+    let sellerRejected = false;
     document.querySelectorAll("script[type='application/ld+json']").forEach((script) => {
       let data;
       try { data = JSON.parse(script.textContent); } catch (_error) { return; }
@@ -235,10 +441,12 @@
         model ||= String(item.model || "").trim() || null;
         sku ||= String(item.sku || "").trim() || null;
         partNumber ||= String(item.mpn || item.model || item.sku || "").trim() || null;
+        if (bundle === null) bundle = normalizeBundle(item.isBundle);
         const rawImage = Array.isArray(item.image) ? item.image[0] : item.image;
         image ||= typeof rawImage === "string" ? rawImage : rawImage?.url || null;
         const offers = Array.isArray(item.offers) ? item.offers : [item.offers];
         offers.filter(Boolean).forEach((offer) => {
+          offerCount += 1;
           const specification = Array.isArray(offer.priceSpecification)
             ? offer.priceSpecification[0] : offer.priceSpecification || {};
           addCandidate(
@@ -249,11 +457,40 @@
             offer.priceCurrency ?? specification.priceCurrency
           );
           if (availability === "unknown") availability = normalizeAvailability(offer.availability);
-          seller ||= sellerName(offer.seller);
+          const rawSeller = typeof offer.seller === "string"
+            ? offer.seller
+            : offer.seller?.name || offer.seller?.legalName || "";
+          const normalizedSeller = sellerName(rawSeller);
+          if (compactText(rawSeller) && !normalizedSeller) sellerRejected = true;
+          if (seller && normalizedSeller && seller !== normalizedSeller) {
+            offerConflict ||= "structured_seller_conflict";
+          }
+          seller ||= normalizedSeller;
+          const normalizedCondition = normalizeCondition(offer.itemCondition);
+          if (condition !== "unknown" && normalizedCondition !== "unknown" && condition !== normalizedCondition) {
+            offerConflict ||= "structured_condition_conflict";
+          }
+          if (condition === "unknown") condition = normalizedCondition;
+          if (bundle === null) bundle = normalizeBundle(offer.isBundle);
         });
       });
     });
-    return { title, image, availability, seller, manufacturer, mpn, model, sku, partNumber };
+    return {
+      title,
+      image,
+      availability,
+      seller,
+      manufacturer,
+      mpn,
+      model,
+      sku,
+      partNumber,
+      condition,
+      bundle,
+      offerCount,
+      offerConflict,
+      sellerRejected
+    };
   }
 
   function extractWalmart(candidates) {
@@ -266,11 +503,57 @@
       const product = initial?.data?.product;
       const current = product?.priceInfo?.currentPrice;
       addCandidate(candidates, current?.price, "embedded_data", 0.98, current?.currencyCode);
+      const availability = normalizeAvailability(product?.availabilityStatus || product?.availabilityStatusV2);
+      const rawSeller = product?.sellerDisplayName || product?.sellerName || product?.seller || "";
+      const normalizedSeller = sellerName(rawSeller);
+      const currentSellerType = sellerType("walmart.com", normalizedSeller);
+      const conditionRaw = product?.conditionDisplayName
+        || product?.condition
+        || product?.productCondition
+        || product?.offerInfo?.condition
+        || "";
+      const condition = normalizeCondition(conditionRaw);
+      const selectedFulfillment = Array.isArray(product?.fulfillmentOptions)
+        ? product.fulfillmentOptions.find((option) => option?.selected || option?.isSelected)
+        : null;
+      const fulfillmentRaw = product?.fulfillmentType
+        || product?.fulfillmentBadge
+        || selectedFulfillment?.fulfilledBy
+        || selectedFulfillment?.sellerName
+        || "";
+      const fulfillmentType = normalizedFulfillmentType(
+        "walmart.com",
+        fulfillmentRaw,
+        currentSellerType,
+        normalizedSeller
+      );
+      const hasCurrentPrice = parseAmount(current?.price) !== null;
+      const active = hasCurrentPrice && availability === "in_stock";
       return {
         title: product?.name || null,
         image: product?.imageInfo?.thumbnailUrl || product?.imageInfo?.allImages?.[0]?.url || null,
-        availability: normalizeAvailability(product?.availabilityStatus || product?.availabilityStatusV2),
-        seller: sellerName(product?.sellerDisplayName || product?.sellerName || product?.seller)
+        currentPrice: parseAmount(current?.price),
+        currency: current?.currencyCode || "USD",
+        availability,
+        seller: normalizedSeller,
+        observation: offerObservation("walmart.com", {
+          seller: rawSeller,
+          seller_type: currentSellerType,
+          condition,
+          offer_scope: hasCurrentPrice ? "primary" : availability === "out_of_stock" ? "none" : "unknown",
+          purchasability: active ? "active" : availability === "out_of_stock" ? "unavailable" : "unknown",
+          fulfillment_type: fulfillmentType,
+          evidence_quality: active && currentSellerType !== "unknown" && condition !== "unknown"
+            ? "reliable"
+            : "ambiguous",
+          bundle: product?.isBundle,
+          offer_evidence: {
+            source: "walmart_next_data",
+            seller_source: rawSeller ? "walmart_current_product" : "unknown",
+            condition_source: conditionRaw ? "walmart_current_product" : "unknown",
+            fulfillment_source: fulfillmentRaw ? "walmart_current_product" : "unknown"
+          }
+        })
       };
     } catch (_error) {
       return {};
@@ -301,7 +584,7 @@
       : "unknown";
   }
 
-  function pageSeller(domain) {
+  function pageSellerEvidence(domain) {
     const selectors = {
       "amazon.com": ["#sellerProfileTriggerId", "#merchant-info"],
       "walmart.com": ["[data-automation-id='seller-name']", "[data-testid='seller-name']"],
@@ -311,10 +594,27 @@
       "gamestop.com": ["[itemprop='seller']"]
     };
     for (const selector of selectors[domain] || []) {
-      const value = document.querySelector(selector)?.textContent?.trim();
-      if (value) return value.replace(/^sold\s+by\s+/i, "").slice(0, 255);
+      const element = document.querySelector(selector);
+      const raw = element?.textContent?.trim() || "";
+      if (!raw) continue;
+      const seller = sellerName(raw);
+      const href = element?.getAttribute?.("href") || element?.href || "";
+      return {
+        seller,
+        raw,
+        source: domain === "amazon.com"
+          ? "amazon_page_seller"
+          : domain === "walmart.com"
+            ? "walmart_page_seller"
+            : domain === "newegg.com"
+              ? "newegg_page_seller"
+              : "generic_page_seller",
+        marketplace_signal: selector.includes("marketplace")
+          || (domain === "amazon.com" && /[?&]seller=/i.test(href)),
+        rejected: !seller
+      };
     }
-    return null;
+    return { seller: null, raw: "", source: "unknown", marketplace_signal: false, rejected: false };
   }
 
   const AMAZON_NOISE_SELECTOR = [
@@ -519,6 +819,176 @@
     return null;
   }
 
+  function firstElement(selectors, root = document) {
+    for (const selector of selectors) {
+      const element = root.querySelector?.(selector);
+      if (element) return element;
+    }
+    return null;
+  }
+
+  function amazonTabularValue(kind) {
+    const labelPattern = kind === "seller"
+      ? /^(?:sold by|seller|vendido por|vendedor)$/i
+      : /^(?:ships? from|fulfilled by|enviado por|enviado desde)$/i;
+    const rows = [...document.querySelectorAll?.("#tabular-buybox [tabular-attribute-name]") || []];
+    for (const row of rows) {
+      const label = compactText(row.getAttribute?.("tabular-attribute-name"));
+      if (!labelPattern.test(label)) continue;
+      const value = row.querySelector?.(".tabular-buybox-text-message")?.textContent
+        || row.textContent
+        || "";
+      const compactValue = compactText(value);
+      return compactValue.toLowerCase().startsWith(label.toLowerCase())
+        ? compactValue.slice(label.length).replace(/^\s*:?\s*/, "")
+        : compactValue;
+    }
+    return "";
+  }
+
+  function amazonMerchantValue(raw, kind) {
+    const value = compactText(raw);
+    if (!value) return "";
+    const pattern = kind === "seller"
+      ? /(?:sold\s+by|vendido\s+por)\s*:?\s*(.+?)(?=\s+(?:ships?\s+from|enviado\s+(?:por|desde)|returns?|devoluciones?)\b|$)/i
+      : /(?:ships?\s+from|enviado\s+(?:por|desde))\s*:?\s*(.+?)(?=\s+(?:sold\s+by|vendido\s+por|returns?|devoluciones?)\b|$)/i;
+    return compactText(value.match(pattern)?.[1] || "").replace(/[.,;]+$/, "").trim();
+  }
+
+  function enabledPurchaseControl(root = document) {
+    const control = firstElement([
+      "#add-to-cart-button",
+      "#buy-now-button",
+      "[data-automation-id='atc']",
+      ".btn-primary.btn-wide",
+      ".add-to-cart-button"
+    ], root);
+    return Boolean(control
+      && !control.disabled
+      && control.getAttribute?.("aria-disabled") !== "true");
+  }
+
+  function amazonOfferObservation(amazonPrimary, structured, availability, title) {
+    const buyingChoices = firstElement([
+      "#buybox-see-all-buying-choices",
+      "#buybox-see-all-buying-choices-announce"
+    ]);
+    const activePurchase = Boolean(amazonPrimary && enabledPurchaseControl());
+    const merchantElement = document.querySelector?.("#merchant-info");
+    const merchantRaw = merchantElement?.textContent || "";
+    const profileElement = document.querySelector?.("#sellerProfileTriggerId");
+    const profileRaw = profileElement?.textContent?.trim() || "";
+    const profileHref = profileElement?.getAttribute?.("href") || profileElement?.href || "";
+    const tabularSeller = amazonTabularValue("seller");
+    const merchantSeller = amazonMerchantValue(merchantRaw, "seller");
+    const rawSeller = tabularSeller || merchantSeller || profileRaw || "";
+    const normalizedSeller = sellerName(rawSeller);
+    const marketplaceSignal = /[?&]seller=/i.test(profileHref)
+      || Boolean(normalizedSeller && !isRetailerSeller("amazon.com", normalizedSeller));
+    const currentSellerType = sellerType("amazon.com", normalizedSeller, marketplaceSignal);
+    const tabularFulfillment = amazonTabularValue("fulfillment");
+    const merchantFulfillment = amazonMerchantValue(merchantRaw, "fulfillment");
+    const fulfillmentRaw = tabularFulfillment || merchantFulfillment;
+    const fulfillmentType = normalizedFulfillmentType(
+      "amazon.com",
+      fulfillmentRaw,
+      currentSellerType,
+      normalizedSeller
+    );
+    const explicitConditionElement = firstElement([
+      "#condition",
+      "#condition-value",
+      "#offerCondition",
+      "#renewedProgramDescription"
+    ]);
+    let conditionRaw = explicitConditionElement?.textContent?.trim() || "";
+    if (!conditionRaw && /\b(?:amazon\s+)?renewed\b|\brefurbished\b|\bopen[ -]?box\b|\bpre[ -]?owned\b|\bused\b/i.test(title || "")) {
+      conditionRaw = title;
+    }
+    const condition = normalizeCondition(conditionRaw);
+
+    let offerScope = amazonPrimary ? "primary" : "unknown";
+    let purchasability = activePurchase ? "active" : "unknown";
+    if (buyingChoices) {
+      offerScope = "none";
+      purchasability = "buying_choices_only";
+    } else if (availability === "out_of_stock") {
+      offerScope = "none";
+      purchasability = "unavailable";
+    }
+
+    const reliable = offerScope === "none"
+      || (offerScope === "primary" && purchasability === "active"
+        && currentSellerType !== "unknown" && condition !== "unknown");
+
+    return offerObservation("amazon.com", {
+      seller: rawSeller,
+      seller_type: currentSellerType,
+      condition,
+      offer_scope: offerScope,
+      purchasability,
+      fulfillment_type: fulfillmentType,
+      evidence_quality: reliable ? "reliable" : "ambiguous",
+      bundle: structured.bundle,
+      offer_evidence: {
+        source: "amazon_buy_box",
+        seller_source: tabularSeller
+          ? "amazon_tabular_buy_box"
+          : merchantSeller
+            ? "amazon_merchant_info"
+            : profileRaw
+              ? "amazon_seller_profile"
+              : "unknown",
+        condition_source: explicitConditionElement
+          ? "amazon_buy_box"
+          : conditionRaw
+            ? "amazon_title"
+            : "unknown",
+        fulfillment_source: tabularFulfillment
+          ? "amazon_tabular_buy_box"
+          : merchantFulfillment
+            ? "amazon_merchant_info"
+            : "unknown",
+        conflict: null
+      }
+    });
+  }
+
+  function genericOfferObservation(domain, structured, availability) {
+    const visibleSeller = pageSellerEvidence(domain);
+    const rawSeller = visibleSeller.raw || structured.seller || "";
+    const normalizedSeller = sellerName(rawSeller);
+    const currentSellerType = sellerType(
+      domain,
+      normalizedSeller,
+      visibleSeller.marketplace_signal
+    );
+    const condition = structured.offerCount === 1 ? structured.condition : "unknown";
+    const unavailable = availability === "out_of_stock";
+    return offerObservation(domain, {
+      seller: rawSeller,
+      seller_type: currentSellerType,
+      condition,
+      offer_scope: unavailable ? "none" : "unknown",
+      purchasability: unavailable
+        ? "unavailable"
+        : enabledPurchaseControl()
+          ? "active"
+          : "unknown",
+      fulfillment_type: "unknown",
+      evidence_quality: "ambiguous",
+      seller_rejected: visibleSeller.rejected || structured.sellerRejected,
+      bundle: structured.bundle,
+      offer_evidence: {
+        source: "generic",
+        seller_source: visibleSeller.raw ? visibleSeller.source : structured.seller ? "json_ld_offer" : "unknown",
+        condition_source: condition !== "unknown" ? "json_ld_offer" : "unknown",
+        fulfillment_source: "unknown",
+        conflict: structured.offerConflict
+      }
+    });
+  }
+
   function extract() {
     const candidates = [];
     const domain = domainFor(location.hostname);
@@ -547,6 +1017,13 @@
       });
     }
 
+    if (domain === "walmart.com" && embedded.observation) {
+      candidates.length = 0;
+      if (embedded.currentPrice !== null) {
+        addCandidate(candidates, embedded.currentPrice, "walmart_current_offer", 0.995, embedded.currency);
+      }
+    }
+
     if (amazonPrimary) {
       candidates.length = 0;
       addCandidate(
@@ -559,7 +1036,13 @@
     }
     if (neweggPrimary) {
       candidates.length = 0;
-      addCandidate(candidates, neweggPrimary.raw, "newegg_buy_new", 0.995, currencyMeta);
+      addCandidate(
+        candidates,
+        neweggPrimary.raw,
+        neweggPrimary.observation?.offer_evidence?.source || "newegg_buy_box",
+        0.995,
+        currencyMeta
+      );
     }
 
     const amazonTitle = domain === "amazon.com" ? amazonProductTitle() : null;
@@ -573,22 +1056,36 @@
       || structured.image
       || document.querySelector("meta[property='og:image']")?.content
       || null;
-    const availability = neweggPrimary?.availability && neweggPrimary.availability !== "unknown"
+    let availability = neweggPrimary?.availability && neweggPrimary.availability !== "unknown"
       ? neweggPrimary.availability
       : embedded.availability && embedded.availability !== "unknown"
         ? embedded.availability
         : structured.availability !== "unknown"
           ? structured.availability
           : pageAvailability(domain);
-    const seller = embedded.seller || structured.seller || pageSeller(domain);
     const componentType = detectComponentType(title);
+    const offer = domain === "amazon.com"
+      ? amazonOfferObservation(amazonPrimary, structured, availability, title)
+      : domain === "walmart.com" && embedded.observation
+        ? embedded.observation
+        : domain === "newegg.com" && neweggPrimary?.observation
+          ? neweggPrimary.observation
+          : genericOfferObservation(domain, structured, availability);
+
+    if (offer.bundle === null) offer.bundle = bundleFromTitle(title);
+
+    if (offer.purchasability === "buying_choices_only") availability = "unknown";
+    if (offer.purchasability === "unavailable") availability = "out_of_stock";
+    if (offer.offer_scope === "none" || offer.offer_scope === "secondary") {
+      candidates.length = 0;
+    }
 
     return {
       page_url: location.href.split("#")[0],
       title: String(title || "").trim(),
       image_url: image,
       availability,
-      seller,
+      ...offer,
       manufacturer: structured.manufacturer,
       mpn: structured.mpn,
       model: structured.model,
@@ -613,6 +1110,9 @@
       amazonProductTitle,
       amazonVisible,
       neweggPrimaryOffer,
+      normalizeAvailability,
+      normalizeCondition,
+      sellerName,
       selectorsFor: (domain) => [...(STORE_SELECTORS[domain] || [])]
     }
   };

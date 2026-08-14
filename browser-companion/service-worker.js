@@ -25,6 +25,33 @@ function supportedRetailer(hostname) {
   return RETAILER_DOMAINS.some((domain) => host === domain || host.endsWith(`.${domain}`));
 }
 
+function fingerprintToken(value, fallback = "unknown") {
+  const normalized = String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+  return normalized || fallback;
+}
+
+function discoveryFingerprint(pageUrl, payload) {
+  const candidate = payload?.candidates?.[0];
+  const amount = Number(candidate?.price);
+  const price = Number.isFinite(amount) && amount > 0 ? amount.toFixed(2) : "none";
+  const bundle = payload?.bundle === true ? "true" : payload?.bundle === false ? "false" : "unknown";
+  return [
+    `${pageUrl.origin}${pageUrl.pathname}`,
+    price,
+    fingerprintToken(candidate?.currency),
+    fingerprintToken(payload?.seller, "none"),
+    fingerprintToken(payload?.seller_type),
+    fingerprintToken(payload?.condition),
+    fingerprintToken(payload?.offer_scope),
+    fingerprintToken(payload?.purchasability),
+    fingerprintToken(payload?.fulfillment_type),
+    fingerprintToken(payload?.evidence_quality),
+    bundle,
+    fingerprintToken(payload?.availability),
+    fingerprintToken(payload?.offer_evidence?.conflict, "none")
+  ].join("|");
+}
+
 async function postJson(endpoint, payload) {
   const response = await fetch(endpoint, {
     method: "POST",
@@ -81,9 +108,7 @@ async function passiveDiscovery(message, sender) {
     return { ok: false, message: "PriceBuddy rechazó una captura fuera de las tiendas permitidas." };
   }
 
-  const price = Number(message.payload?.candidates?.[0]?.price || 0);
-  const pageKey = `${pageUrl.origin}${pageUrl.pathname}`;
-  const discoveryKey = `${pageKey}|${price}`;
+  const discoveryKey = discoveryFingerprint(pageUrl, message.payload);
 
   if (inFlightDiscoveries.has(discoveryKey)) {
     return { ok: true, skipped: true, reason: "in_flight" };
@@ -98,19 +123,22 @@ async function passiveDiscovery(message, sender) {
       .filter((item) => now - Number(item.at || 0) < 30 * 60 * 1000)
       .slice(0, 99);
 
-    if (recent.some((item) => item.key === pageKey && Number(item.price) === price)) {
+    if (recent.some((item) => item.key === discoveryKey)) {
       return { ok: true, skipped: true, reason: "recent" };
     }
 
     try {
       const data = await postJson(DISCOVERY_ENDPOINT, message.payload);
-      recent.unshift({ key: pageKey, price, at: now });
+      if (data?.stored === false) {
+        return { ok: true, ignored: true, reason: "not_stored", data };
+      }
+      recent.unshift({ key: discoveryKey, at: now });
       await storageSet({
         recentDiscoveries: recent,
         capturedCount: Number(state.capturedCount || 0) + 1,
         lastDiscovery: {
           title: String(message.payload.title || "").slice(0, 120),
-          price: Number(data.price),
+          price: data.price === null || data.price === undefined ? null : Number(data.price),
           componentType: data.component_type,
           at: now
         }

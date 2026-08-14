@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Dto\HardwareEvidence;
 use App\Dto\IdentityIngestionResult;
+use App\Dto\OfferObservation;
 use App\Enums\ComponentType;
 use App\Models\DealOffer;
 use App\Models\DealSearch;
@@ -28,9 +29,10 @@ class BrowserDiscoveryService
         private readonly CatalogTrackingService $tracking,
         private readonly HardwareEvidenceNormalizer $evidenceNormalizer,
         private readonly HardwareIdentityIngestionService $identityIngestion,
+        private readonly OfferObservationNormalizer $offerNormalizer,
     ) {}
 
-    /** @return array{offer: DealOffer, part: PcPart, product: \App\Models\Product, component_type: ComponentType} */
+    /** @return array{offer: ?DealOffer, part: ?PcPart, product: ?Product, component_type: ComponentType, stored: bool, metadata_only: bool} */
     public function capture(array $payload): array
     {
         $product = $this->productUrls->identify((string) $payload['page_url']);
@@ -48,8 +50,23 @@ class BrowserDiscoveryService
             ]);
         }
 
-        $winner = $this->candidateSelector->select((array) $payload['candidates'], $componentType);
+        $observation = $this->offerNormalizer->normalize($payload);
         $user = $this->companionUser();
+        $exactTrackedListing = $this->findExactTrackedListing($product, $user);
+
+        if ((array) ($payload['candidates'] ?? []) === []) {
+            return $this->recordMetadataOnlyObservation(
+                $payload,
+                $product,
+                $title,
+                $componentType,
+                $user,
+                $observation,
+                $exactTrackedListing,
+            );
+        }
+
+        $winner = $this->candidateSelector->select((array) $payload['candidates'], $componentType);
         $evidence = $this->evidenceNormalizer->fromArray([
             'component_type' => $componentType->value,
             'title' => $title,
@@ -58,17 +75,12 @@ class BrowserDiscoveryService
             'mpn' => $payload['mpn'] ?? null,
             'part_number' => $payload['part_number'] ?? null,
             'part_number_type' => filled($payload['mpn'] ?? null) ? 'mpn' : null,
-            'seller_type' => $payload['seller_type'] ?? null,
-            'condition' => $payload['condition'] ?? null,
-            'marketplace' => $payload['marketplace'] ?? null,
-            'bundle' => $payload['bundle'] ?? null,
+            ...$observation->toHardwareEvidenceAttributes(),
         ], [
             'source' => 'browser_companion',
             'legacy_part_number' => $payload['part_number'] ?? null,
             'sku' => $payload['sku'] ?? null,
         ]);
-        $exactTrackedListing = $this->findExactTrackedListing($product, $user);
-
         // Identity uses its own short transaction so it never inherits locks
         // held by Browser Radar's core tracking transaction.
         $identityResult = $this->ingestIdentitySafely(
@@ -76,10 +88,11 @@ class BrowserDiscoveryService
             $evidence,
             part: $exactTrackedListing['part'] ?? null,
             url: $exactTrackedListing['url'] ?? null,
-            seller: isset($payload['seller']) ? (string) $payload['seller'] : null,
+            seller: $observation->seller,
         );
 
-        $result = DB::transaction(function () use ($payload, $product, $title, $componentType, $winner, $user, $evidence, $identityResult, $exactTrackedListing): array {
+        /** @var array{offer: DealOffer, part: ?PcPart, product: ?Product, component_type: ComponentType, stored: true, metadata_only: false} $result */
+        $result = DB::transaction(function () use ($payload, $product, $title, $componentType, $winner, $user, $evidence, $identityResult, $exactTrackedListing, $observation): array {
             $searchIdentity = [
                 'user_id' => $user->getKey(),
                 'query' => 'browser-radar:'.$componentType->value,
@@ -153,61 +166,153 @@ class BrowserDiscoveryService
                     'price' => $winner['price'],
                     'currency' => 'USD',
                     'source' => 'browser_discovery',
-                    'availability' => $payload['availability'] ?? DealOffer::AVAILABILITY_UNKNOWN,
-                    'seller' => filled($payload['seller'] ?? null)
-                        ? Str::limit((string) $payload['seller'], 255, '')
-                        : $offer->seller,
                     'fetched_at' => $now,
+                    ...$observation->toDealOfferAttributes(),
                 ])->save();
                 $offer->recordPriceSnapshot();
             }
 
-            $part = $this->upsertCatalogPart(
-                $payload,
-                $product,
-                $title,
-                $componentType,
-                $evidence,
-                $identityResult?->identity?->getKey(),
-                $exactTrackedListing,
-            );
-            $trackedProduct = $this->tracking->trackBrowserDiscovery(
-                $part,
-                $user->getKey(),
-                $product['slug'],
-                [
-                    'price' => $winner['price'],
-                    'image_url' => $payload['image_url'] ?? null,
-                    'availability' => $payload['availability'] ?? DealOffer::AVAILABILITY_UNKNOWN,
-                ],
-            );
+            $part = $exactTrackedListing['part'] ?? null;
+            $trackedProduct = $exactTrackedListing['product'] ?? null;
+            if ($observation->comparisonEligible) {
+                $part = $this->upsertCatalogPart(
+                    $payload,
+                    $product,
+                    $title,
+                    $componentType,
+                    $evidence,
+                    $identityResult?->identity?->getKey(),
+                    $exactTrackedListing,
+                );
+                $trackedProduct = $this->tracking->trackBrowserDiscovery(
+                    $part,
+                    $user->getKey(),
+                    $product['slug'],
+                    [
+                        'price' => $winner['price'],
+                        'image_url' => $payload['image_url'] ?? null,
+                        'availability' => $observation->availability,
+                        'comparison_eligible' => true,
+                    ],
+                );
+            }
 
             return [
                 'offer' => $targetOffer->fresh('dealSearch'),
                 'part' => $part,
                 'product' => $trackedProduct,
                 'component_type' => $componentType,
+                'stored' => true,
+                'metadata_only' => false,
             ];
         });
 
-        $retailerUrls = (array) ($result['part']->retailer_urls ?? []);
-        $trackedUrlValue = $retailerUrls[$product['slug']] ?? $product['url'];
         /** @var ?Url $trackedUrl */
-        $trackedUrl = $result['product']->urls()->where('url', $trackedUrlValue)->first();
+        $trackedUrl = $exactTrackedListing['url'] ?? null;
+        if (! $trackedUrl instanceof Url
+            && $result['part'] instanceof PcPart
+            && $result['product'] instanceof Product) {
+            $retailerUrls = (array) ($result['part']->retailer_urls ?? []);
+            $trackedUrlValue = $retailerUrls[$product['slug']] ?? $product['url'];
+            /** @var ?Url $createdTrackedUrl */
+            $createdTrackedUrl = $result['product']->urls()->where('url', $trackedUrlValue)->first();
+            $trackedUrl = $createdTrackedUrl;
+        }
         $this->ingestIdentitySafely(
             $product,
             $evidence,
             part: $result['part'],
             url: $trackedUrl,
             offer: $result['offer'],
-            seller: isset($payload['seller']) ? (string) $payload['seller'] : null,
+            seller: $observation->seller,
         );
 
-        $result['offer']->refresh()->load('dealSearch');
-        $result['part']->refresh();
-        $result['product']->refresh();
+        $capturedOffer = $result['offer'];
+        $capturedPart = $result['part'];
+        $capturedProduct = $result['product'];
+        $capturedComponentType = $result['component_type'];
+        $stored = $result['stored'];
+        $metadataOnly = $result['metadata_only'];
+        $capturedOffer->refresh()->load('dealSearch');
+        $capturedPart?->refresh();
+        $capturedProduct?->refresh();
 
-        return $result;
+        return [
+            'offer' => $capturedOffer,
+            'part' => $capturedPart,
+            'product' => $capturedProduct,
+            'component_type' => $capturedComponentType,
+            'stored' => $stored,
+            'metadata_only' => $metadataOnly,
+        ];
+    }
+
+    /**
+     * A no-price observation may only retire/update an offer that already
+     * represents this exact retailer listing for the companion user. It must
+     * never bootstrap catalog or tracking state.
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array{slug: string, store: string, identifier: string, product_key: string, url: string, identifier_type: string, external_identifier: string, listing_key: string, listing_key_hash: string, normalized_url: string}  $listing
+     * @param  null|array{url: Url, product: Product, part: PcPart}  $exactTrackedListing
+     * @return array{offer: ?DealOffer, part: ?PcPart, product: ?Product, component_type: ComponentType, stored: bool, metadata_only: true}
+     */
+    private function recordMetadataOnlyObservation(
+        array $payload,
+        array $listing,
+        string $title,
+        ComponentType $componentType,
+        User $user,
+        OfferObservation $observation,
+        ?array $exactTrackedListing,
+    ): array {
+        $offer = DB::transaction(function () use ($payload, $listing, $title, $user, $observation): ?DealOffer {
+            $urlHash = hash('sha256', $listing['url']);
+            $offers = DealOffer::query()
+                ->whereHas('dealSearch', fn (Builder $query): Builder => $query
+                    ->where('user_id', $user->getKey()))
+                ->where(fn (Builder $query): Builder => $query
+                    ->where('url_hash', $urlHash)
+                    ->orWhereHas('listing', fn (Builder $listingQuery): Builder => $listingQuery
+                        ->where('listing_key_hash', $listing['listing_key_hash'])))
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            if ($offers->isEmpty()) {
+                return null;
+            }
+
+            $now = now();
+            foreach ($offers as $existingOffer) {
+                $existingOffer->forceFill([
+                    'store' => $listing['store'],
+                    'title' => Str::limit($title, 1024, ''),
+                    'url' => $listing['url'],
+                    'image_url' => filled($payload['image_url'] ?? null)
+                        ? $payload['image_url']
+                        : $existingOffer->image_url,
+                    'price' => null,
+                    'source' => 'browser_discovery',
+                    'fetched_at' => $now,
+                    ...$observation->toDealOfferAttributes(),
+                    'comparison_eligible' => false,
+                ])->save();
+            }
+
+            $firstOffer = $offers->first();
+
+            return $firstOffer->fresh('dealSearch');
+        });
+
+        return [
+            'offer' => $offer,
+            'part' => $exactTrackedListing['part'] ?? null,
+            'product' => $exactTrackedListing['product'] ?? null,
+            'component_type' => $componentType,
+            'stored' => $offer instanceof DealOffer,
+            'metadata_only' => true,
+        ];
     }
 
     private function companionUser(): User

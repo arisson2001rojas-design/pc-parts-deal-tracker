@@ -17,6 +17,7 @@ class BrowserPriceCaptureService
     public function __construct(
         private readonly PriceCandidateSelector $candidateSelector,
         private readonly RetailerProductUrl $productUrls,
+        private readonly OfferObservationNormalizer $offerNormalizer,
     ) {}
 
     public function capture(
@@ -42,6 +43,9 @@ class BrowserPriceCaptureService
             (array) $payload['candidates'],
             $offer->dealSearch?->component_type,
         );
+        $observation = $verificationSource === 'browser_capture'
+            ? $this->offerNormalizer->normalize($payload)
+            : null;
         $imageUrl = $payload['image_url'] ?? null;
 
         $updates = [
@@ -52,16 +56,20 @@ class BrowserPriceCaptureService
             'source' => $verificationSource,
             'fetched_at' => now(),
         ];
-        if (in_array($payload['availability'] ?? null, [
-            DealOffer::AVAILABILITY_IN_STOCK,
-            DealOffer::AVAILABILITY_OUT_OF_STOCK,
-            DealOffer::AVAILABILITY_UNKNOWN,
-        ], true)) {
-            $updates['availability'] = $payload['availability'];
-        }
-        if (array_key_exists('seller', $payload)) {
-            $seller = trim((string) ($payload['seller'] ?? ''));
-            $updates['seller'] = $seller !== '' ? Str::limit($seller, 255, '') : null;
+        if ($observation !== null) {
+            $updates = [...$updates, ...$observation->toDealOfferAttributes()];
+        } else {
+            if (in_array($payload['availability'] ?? null, [
+                DealOffer::AVAILABILITY_IN_STOCK,
+                DealOffer::AVAILABILITY_OUT_OF_STOCK,
+                DealOffer::AVAILABILITY_UNKNOWN,
+            ], true)) {
+                $updates['availability'] = $payload['availability'];
+            }
+            if (array_key_exists('seller', $payload)) {
+                $seller = trim((string) ($payload['seller'] ?? ''));
+                $updates['seller'] = $seller !== '' ? Str::limit($seller, 255, '') : null;
+            }
         }
 
         $offer->forceFill($updates)->save();

@@ -19,6 +19,17 @@
     "#apex_offerDisplay_desktop",
     "#apex_price",
     "#availability",
+    "#sellerProfileTriggerId",
+    "#merchant-info",
+    "#tabular-buybox",
+    "#buybox-see-all-buying-choices",
+    "#add-to-cart-button",
+    "#buy-now-button",
+    "#condition",
+    "#condition-value",
+    "#offerCondition",
+    "#__NEXT_DATA__",
+    "script[type='application/ld+json']",
     "#twister",
     "[id*='variation']",
     ".product-buy-box",
@@ -27,6 +38,16 @@
     ".price-current_2026",
     "[data-automation-id='product-price']",
     "[data-testid='product-price']",
+    "[data-automation-id='seller-name']",
+    "[data-testid='seller-name']",
+    "[data-testid='marketplace-seller-name']",
+    "[data-automation-id='condition']",
+    "[data-testid='condition']",
+    "[data-automation-id='fulfillment-shipping']",
+    ".product-seller",
+    ".product-seller-info",
+    "[itemprop='seller']",
+    "[itemprop='itemCondition']",
     "[itemprop='price']"
   ].join(", ");
 
@@ -94,6 +115,13 @@
     });
   }
 
+  function hasDiscoveryObservation(payload) {
+    if (payload.candidates?.length > 0) return true;
+    return payload.offer_scope && payload.offer_scope !== "unknown"
+      && payload.purchasability && payload.purchasability !== "unknown"
+      && ["reliable", "ambiguous", "invalid"].includes(payload.evidence_quality);
+  }
+
   async function manualCapture() {
     toast("PriceBuddy está comprobando el precio visible…");
     for (const wait of [800, 2200, 4500]) {
@@ -132,15 +160,19 @@
     for (const wait of [0, 900, 2200, 4500]) {
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       const payload = globalThis.PriceBuddyExtractor.extract();
-      if (!payload.supported_product_page || !payload.component_type || payload.candidates.length === 0) continue;
+      if (!payload.supported_product_page || !payload.component_type || !hasDiscoveryObservation(payload)) continue;
 
       const response = await send({ type: "pricebuddy:discover", payload });
       if (response.ok && !response.skipped && !response.ignored && options.radarNotifications) {
-        const price = Number(response.data?.price).toLocaleString("en-US", {
-          style: "currency",
-          currency: "USD"
-        });
-        toast(`Radar PriceBuddy: ${payload.component_type.toUpperCase()} guardado a ${price}.`, "success", true);
+        if (response.data?.price === null || response.data?.price === undefined) {
+          toast(`Radar PriceBuddy: estado de ${payload.component_type.toUpperCase()} guardado sin precio activo.`, "success", true);
+        } else {
+          const price = Number(response.data.price).toLocaleString("en-US", {
+            style: "currency",
+            currency: "USD"
+          });
+          toast(`Radar PriceBuddy: ${payload.component_type.toUpperCase()} guardado a ${price}.`, "success", true);
+        }
       }
       return response.ok;
     }
@@ -264,7 +296,14 @@
         "style",
         "hidden",
         "aria-hidden",
+        "aria-disabled",
+        "aria-checked",
+        "checked",
+        "disabled",
+        "href",
         "data-csa-c-asin",
+        "data-automation-id",
+        "data-testid",
         "content"
       ]
     });

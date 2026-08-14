@@ -92,6 +92,48 @@ class HybridPriceVerificationTest extends TestCase
         $this->assertSame('https://c1.neweggimages.com/productimage.jpg', $offer->image_url);
     }
 
+    public function test_direct_extraction_does_not_upgrade_an_existing_non_comparable_offer(): void
+    {
+        $offer = $this->offer();
+        $offer->forceFill([
+            'seller' => 'Marketplace Seller',
+            'seller_type' => 'marketplace',
+            'condition' => 'new',
+            'offer_scope' => 'primary',
+            'purchasability' => 'active',
+            'fulfillment_type' => 'seller',
+            'evidence_quality' => 'reliable',
+            'bundle' => false,
+            'comparison_eligible' => false,
+            'offer_evidence' => ['seller_source' => 'buy_box'],
+        ])->save();
+        Http::fake([
+            'price-extractor.test/extract' => Http::response([
+                'data' => [
+                    'page_url' => $offer->url,
+                    'title' => 'AMD Ryzen 7 7700X3D Desktop Processor',
+                    'candidates' => [
+                        ['price' => 159.99, 'currency' => 'USD', 'source' => 'site_specific', 'confidence' => 0.96],
+                    ],
+                ],
+            ]),
+        ]);
+
+        (new VerifyDealOfferJob($offer->getKey()))->handle(
+            resolve(RetailPriceExtractorClient::class),
+            resolve(BrowserPriceCaptureService::class),
+            resolve(DealHunterService::class),
+        );
+
+        $offer->refresh();
+        $this->assertSame('159.99', $offer->price);
+        $this->assertSame('direct_extract', $offer->source);
+        $this->assertSame('Marketplace Seller', $offer->seller);
+        $this->assertSame('marketplace', $offer->seller_type->value);
+        $this->assertFalse($offer->comparison_eligible);
+        $this->assertFalse($offer->hasVerifiedPrice());
+    }
+
     public function test_tracked_product_urls_use_the_lightweight_extractor_first(): void
     {
         $store = Store::factory()->create([
