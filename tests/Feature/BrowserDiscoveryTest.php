@@ -4,8 +4,12 @@ namespace Tests\Feature;
 
 use App\Enums\ComponentType;
 use App\Enums\IdentityResolutionState;
+use App\Enums\OfferCondition;
+use App\Enums\OfferScope;
+use App\Enums\SellerType;
 use App\Enums\Statuses;
 use App\Models\DealOffer;
+use App\Models\DealSearch;
 use App\Models\HardwareIdentity;
 use App\Models\PcPart;
 use App\Models\Product;
@@ -16,6 +20,7 @@ use App\Models\User;
 use App\Services\CatalogTrackingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class BrowserDiscoveryTest extends TestCase
@@ -48,7 +53,7 @@ class BrowserDiscoveryTest extends TestCase
             'price' => 129.99,
             'source' => 'browser_discovery',
             'availability' => DealOffer::AVAILABILITY_IN_STOCK,
-            'seller' => 'SenyTech Global',
+            'seller' => 'Newegg',
         ]);
         $this->assertDatabaseHas('pc_parts', [
             'component_type' => 'cpu',
@@ -707,6 +712,346 @@ class BrowserDiscoveryTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_marketplace_price_is_observed_but_does_not_enter_normal_product_history(): void
+    {
+        Queue::fake();
+        User::factory()->create();
+        $this->createStore('Newegg US');
+
+        $payload = $this->payload();
+        $payload['seller'] = 'SenyTech Global';
+        $payload['seller_type'] = 'marketplace';
+        $payload['fulfillment_type'] = 'seller';
+
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $payload)
+            ->assertCreated()
+            ->assertJsonPath('data.stored', true)
+            ->assertJsonPath('data.metadata_only', false)
+            ->assertJsonPath('data.product_id', null)
+            ->assertJsonPath('data.pc_part_id', null);
+
+        $offer = DealOffer::query()->firstOrFail();
+        $this->assertTrue($offer->hasObservedPrice());
+        $this->assertFalse($offer->hasVerifiedPrice());
+        $this->assertFalse($offer->comparison_eligible);
+        $this->assertSame(SellerType::Marketplace, $offer->seller_type);
+        $this->assertDatabaseHas('deal_offer_prices', [
+            'deal_offer_id' => $offer->getKey(),
+            'seller' => 'SenyTech Global',
+            'comparison_eligible' => false,
+        ]);
+        $this->assertDatabaseCount('pc_parts', 0);
+        $this->assertDatabaseCount('products', 0);
+        $this->assertDatabaseCount('urls', 0);
+        $this->assertDatabaseCount('prices', 0);
+        Queue::assertNothingPushed();
+    }
+
+    #[DataProvider('nonComparableConditions')]
+    public function test_non_comparable_conditions_stay_outside_catalog_tracking(string $condition): void
+    {
+        Queue::fake();
+        User::factory()->create();
+        $this->createStore('Newegg US');
+
+        $payload = $this->payload();
+        $payload['condition'] = $condition;
+
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $payload)
+            ->assertCreated()
+            ->assertJsonPath('data.stored', true)
+            ->assertJsonPath('data.product_id', null)
+            ->assertJsonPath('data.pc_part_id', null);
+
+        $offer = DealOffer::query()->firstOrFail();
+        $this->assertFalse($offer->comparison_eligible);
+        $this->assertSame(OfferCondition::from($condition), $offer->condition);
+        $this->assertDatabaseHas('deal_offer_prices', [
+            'deal_offer_id' => $offer->getKey(),
+            'condition' => $condition,
+            'comparison_eligible' => false,
+        ]);
+        $this->assertDatabaseCount('pc_parts', 0);
+        $this->assertDatabaseCount('products', 0);
+        $this->assertDatabaseCount('urls', 0);
+        $this->assertDatabaseCount('prices', 0);
+        Queue::assertNothingPushed();
+    }
+
+    /** @return array<string, array{string}> */
+    public static function nonComparableConditions(): array
+    {
+        return [
+            'used' => ['used'],
+            'renewed' => ['renewed'],
+            'open box' => ['open_box'],
+        ];
+    }
+
+    public function test_non_comparable_observation_preserves_an_existing_exact_products_tracking_state(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $store = $this->createStore('Newegg US');
+        $futureCheck = now()->addDay()->startOfSecond();
+        $historical = $this->createHistoricalTrackedListing(
+            $user,
+            $store,
+            'https://www.newegg.com/p/9SIC3U3KN44182',
+            139.99,
+            productAttributes: [
+                'paused' => true,
+                'paused_by_user' => true,
+                'favourite' => false,
+                'refresh_interval' => 43210,
+                'next_check_at' => $futureCheck,
+            ],
+        );
+        $historical['product']->forceFill(['next_check_at' => $futureCheck])->save();
+        $payload = $this->payload();
+        $payload['seller'] = 'SenyTech Global';
+        $payload['seller_type'] = 'marketplace';
+        $payload['fulfillment_type'] = 'seller';
+
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $payload)
+            ->assertCreated()
+            ->assertJsonPath('data.product_id', $historical['product']->getKey())
+            ->assertJsonPath('data.pc_part_id', $historical['part']->getKey());
+
+        $offer = DealOffer::query()->firstOrFail();
+        $product = $historical['product']->fresh();
+        $this->assertFalse($offer->comparison_eligible);
+        $this->assertDatabaseHas('deal_offer_prices', [
+            'deal_offer_id' => $offer->getKey(),
+            'seller' => 'SenyTech Global',
+            'comparison_eligible' => false,
+        ]);
+        $this->assertDatabaseCount('pc_parts', 1);
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseCount('urls', 1);
+        $this->assertDatabaseCount('prices', 1);
+        $this->assertSame($historical['part']->getKey(), $product->pc_part_id);
+        $this->assertTrue($product->paused);
+        $this->assertTrue($product->paused_by_user);
+        $this->assertFalse($product->favourite);
+        $this->assertSame(43210, $product->refresh_interval);
+        $this->assertTrue($futureCheck->equalTo($product->next_check_at));
+        Queue::assertNothingPushed();
+    }
+
+    public function test_same_price_offer_context_change_is_snapshotted_without_contaminating_product_history(): void
+    {
+        Queue::fake();
+        User::factory()->create();
+        $this->createStore('Newegg US');
+
+        $first = $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $this->payload())
+            ->assertCreated();
+
+        $product = Product::query()->findOrFail($first->json('data.product_id'));
+        $partId = $product->pc_part_id;
+        $urlId = $product->urls()->firstOrFail()->getKey();
+        $futureCheck = now()->addDay()->startOfSecond();
+        $product->forceFill([
+            'paused' => true,
+            'paused_by_user' => true,
+            'favourite' => true,
+            'refresh_interval' => 43210,
+        ])->save();
+        $product->forceFill(['next_check_at' => $futureCheck])->save();
+
+        $payload = $this->payload();
+        $payload['seller'] = 'SenyTech Global';
+        $payload['seller_type'] = 'marketplace';
+        $payload['fulfillment_type'] = 'seller';
+
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $payload)
+            ->assertCreated()
+            ->assertJsonPath('data.product_id', $product->getKey())
+            ->assertJsonPath('data.pc_part_id', $partId);
+
+        $offer = DealOffer::query()->firstOrFail();
+        $product->refresh();
+        $this->assertFalse($offer->hasVerifiedPrice());
+        $this->assertDatabaseCount('deal_offer_prices', 2);
+        $this->assertDatabaseCount('prices', 1);
+        $this->assertDatabaseCount('pc_parts', 1);
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseCount('urls', 1);
+        $this->assertSame($partId, $product->pc_part_id);
+        $this->assertSame($urlId, $product->urls()->firstOrFail()->getKey());
+        $this->assertTrue($product->paused);
+        $this->assertTrue($product->paused_by_user);
+        $this->assertTrue($product->favourite);
+        $this->assertSame(43210, $product->refresh_interval);
+        $this->assertTrue($futureCheck->equalTo($product->next_check_at));
+        $this->assertSame(
+            [true, false],
+            $offer->priceSnapshots()
+                ->orderBy('id')
+                ->pluck('comparison_eligible')
+                ->map(fn (mixed $value): bool => (bool) $value)
+                ->all(),
+        );
+        Queue::assertNothingPushed();
+    }
+
+    public function test_a_later_comparable_observation_can_enroll_a_previously_non_comparable_listing(): void
+    {
+        Queue::fake();
+        User::factory()->create();
+        $this->createStore('Newegg US');
+        $marketplace = $this->payload();
+        $marketplace['seller'] = 'SenyTech Global';
+        $marketplace['seller_type'] = 'marketplace';
+        $marketplace['fulfillment_type'] = 'seller';
+
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $marketplace)
+            ->assertCreated()
+            ->assertJsonPath('data.product_id', null)
+            ->assertJsonPath('data.pc_part_id', null);
+
+        $this->assertDatabaseCount('pc_parts', 0);
+        $this->assertDatabaseCount('products', 0);
+        $this->assertDatabaseCount('urls', 0);
+        $this->assertDatabaseCount('prices', 0);
+
+        $comparable = $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $this->payload())
+            ->assertCreated()
+            ->assertJsonPath('data.stored', true);
+
+        $this->assertNotNull($comparable->json('data.product_id'));
+        $this->assertNotNull($comparable->json('data.pc_part_id'));
+        $offer = DealOffer::query()->firstOrFail();
+        $product = Product::query()->firstOrFail();
+        $this->assertTrue($offer->comparison_eligible);
+        $this->assertDatabaseCount('deal_offer_prices', 2);
+        $this->assertDatabaseCount('pc_parts', 1);
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseCount('urls', 1);
+        $this->assertDatabaseCount('prices', 1);
+        $this->assertSame(28800, $product->refresh_interval);
+        $this->assertNotNull($product->next_check_at);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_no_price_observation_only_updates_an_existing_exact_offer(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $this->createStore('Newegg US');
+        $search = DealSearch::query()->create([
+            'user_id' => $user->getKey(),
+            'name' => 'Existing exact offer',
+            'query' => 'AMD Ryzen 5 5600',
+            'component_type' => ComponentType::Cpu,
+            'enabled' => true,
+        ]);
+        $offer = $search->offers()->create([
+            'store' => 'Newegg',
+            'title' => 'AMD Ryzen 5 5600 Desktop Processor',
+            'url' => 'https://www.newegg.com/p/9SIC3U3KN44182',
+            'url_hash' => hash('sha256', 'https://www.newegg.com/p/9SIC3U3KN44182'),
+            'price' => 129.99,
+            'currency' => 'USD',
+            'source' => 'browser_discovery',
+            'fetched_at' => now()->subHour(),
+        ]);
+        $existingSnapshot = $offer->recordPriceSnapshot();
+        $this->assertNotNull($existingSnapshot);
+
+        $payload = $this->payload();
+        $payload['candidates'] = [];
+        $payload['seller'] = null;
+        $payload['seller_type'] = 'unknown';
+        $payload['condition'] = 'unknown';
+        $payload['offer_scope'] = 'none';
+        $payload['purchasability'] = 'buying_choices_only';
+        $payload['fulfillment_type'] = 'unknown';
+        $payload['evidence_quality'] = 'ambiguous';
+
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $payload)
+            ->assertOk()
+            ->assertJsonPath('data.offer_id', $offer->getKey())
+            ->assertJsonPath('data.stored', true)
+            ->assertJsonPath('data.metadata_only', true)
+            ->assertJsonPath('data.price', null);
+
+        $offer->refresh();
+        $this->assertNull($offer->price);
+        $this->assertFalse($offer->comparison_eligible);
+        $this->assertSame(OfferScope::None, $offer->offer_scope);
+        $this->assertDatabaseCount('deal_offers', 1);
+        $this->assertDatabaseCount('deal_offer_prices', 1);
+        $this->assertSame(129.99, (float) $existingSnapshot->fresh()->price);
+        $this->assertDatabaseCount('pc_parts', 0);
+        $this->assertDatabaseCount('products', 0);
+        $this->assertDatabaseCount('urls', 0);
+        $this->assertDatabaseCount('prices', 0);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_no_price_observation_for_an_unknown_listing_creates_nothing(): void
+    {
+        Queue::fake();
+        User::factory()->create();
+        $this->createStore('Newegg US');
+        $payload = $this->payload();
+        unset($payload['candidates']);
+        $payload['offer_scope'] = 'none';
+        $payload['purchasability'] = 'buying_choices_only';
+        $payload['evidence_quality'] = 'ambiguous';
+        $payload['condition'] = 'unknown';
+        $payload['seller_type'] = 'unknown';
+
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $payload)
+            ->assertOk()
+            ->assertJsonPath('data.stored', false)
+            ->assertJsonPath('data.metadata_only', true);
+
+        $this->assertDatabaseCount('deal_searches', 0);
+        $this->assertDatabaseCount('deal_offers', 0);
+        $this->assertDatabaseCount('deal_offer_prices', 0);
+        $this->assertDatabaseCount('pc_parts', 0);
+        $this->assertDatabaseCount('products', 0);
+        $this->assertDatabaseCount('urls', 0);
+        $this->assertDatabaseCount('prices', 0);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_malformed_candidates_are_still_rejected_when_supplied(): void
+    {
+        User::factory()->create();
+        $this->createStore('Newegg US');
+        $payload = $this->payload();
+        $payload['candidates'] = [['price' => 129.99]];
+
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $payload)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors([
+                'candidates.0.currency',
+                'candidates.0.source',
+                'candidates.0.confidence',
+            ]);
+
+        $this->assertDatabaseCount('deal_searches', 0);
+        $this->assertDatabaseCount('deal_offers', 0);
+        $this->assertDatabaseCount('pc_parts', 0);
+        $this->assertDatabaseCount('products', 0);
+        $this->assertDatabaseCount('urls', 0);
+        $this->assertDatabaseCount('prices', 0);
+    }
+
     /** @return array<string, mixed> */
     private function payload(): array
     {
@@ -715,7 +1060,20 @@ class BrowserDiscoveryTest extends TestCase
             'title' => 'AMD Ryzen 5 5600 Desktop Processor',
             'image_url' => 'https://c1.neweggimages.com/ProductImage.jpg',
             'availability' => 'in_stock',
-            'seller' => 'SenyTech Global',
+            'seller' => 'Newegg',
+            'seller_type' => 'retailer',
+            'condition' => 'new',
+            'offer_scope' => 'primary',
+            'purchasability' => 'active',
+            'fulfillment_type' => 'retailer',
+            'evidence_quality' => 'reliable',
+            'bundle' => false,
+            'offer_evidence' => [
+                'source' => 'newegg_buy_new',
+                'seller_source' => 'buy_box',
+                'condition_source' => 'buy_new',
+                'fulfillment_source' => 'buy_box',
+            ],
             'manufacturer' => 'AMD',
             'mpn' => '100-000000927',
             'model' => 'Ryzen 5 5600',

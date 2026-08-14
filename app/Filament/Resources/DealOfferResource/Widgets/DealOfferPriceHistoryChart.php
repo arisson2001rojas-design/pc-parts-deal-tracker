@@ -5,6 +5,7 @@ namespace App\Filament\Resources\DealOfferResource\Widgets;
 use App\Models\DealOffer;
 use App\Providers\Filament\AdminPanelProvider;
 use Filament\Widgets\ChartWidget;
+use Illuminate\Database\Eloquent\Builder;
 
 class DealOfferPriceHistoryChart extends ChartWidget
 {
@@ -19,6 +20,9 @@ class DealOfferPriceHistoryChart extends ChartWidget
     protected function getData(): array
     {
         $history = $this->record?->priceSnapshots()
+            ->where(fn (Builder $eligible): Builder => $eligible
+                ->where('comparison_eligible', true)
+                ->orWhereNull('comparison_eligible'))
             ->orderBy('captured_at')
             ->get() ?? collect();
         $labels = $history

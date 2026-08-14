@@ -2,6 +2,13 @@
 
 namespace App\Models;
 
+use App\Enums\FulfillmentType;
+use App\Enums\OfferCondition;
+use App\Enums\OfferEvidenceQuality;
+use App\Enums\OfferPurchasability;
+use App\Enums\OfferScope;
+use App\Enums\SellerType;
+use BackedEnum;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +23,15 @@ use Illuminate\Support\Facades\URL;
  * @property string $source
  * @property ?Carbon $fetched_at
  * @property ?RetailerListing $listing
+ * @property ?SellerType $seller_type
+ * @property ?OfferCondition $condition
+ * @property ?OfferScope $offer_scope
+ * @property ?OfferPurchasability $purchasability
+ * @property ?FulfillmentType $fulfillment_type
+ * @property ?OfferEvidenceQuality $evidence_quality
+ * @property ?bool $bundle
+ * @property ?bool $comparison_eligible
+ * @property array<string, mixed>|null $offer_evidence
  */
 class DealOffer extends Model
 {
@@ -43,6 +59,15 @@ class DealOffer extends Model
         return [
             'price' => 'decimal:2',
             'fetched_at' => 'datetime',
+            'seller_type' => SellerType::class,
+            'condition' => OfferCondition::class,
+            'offer_scope' => OfferScope::class,
+            'purchasability' => OfferPurchasability::class,
+            'fulfillment_type' => FulfillmentType::class,
+            'evidence_quality' => OfferEvidenceQuality::class,
+            'bundle' => 'boolean',
+            'comparison_eligible' => 'boolean',
+            'offer_evidence' => 'array',
         ];
     }
 
@@ -74,6 +99,15 @@ class DealOffer extends Model
 
     public function scopeVerifiedPrice(Builder $query): Builder
     {
+        return $this->scopeObservedPrice($query)
+            ->where(fn (Builder $integrity): Builder => $integrity
+                ->where('comparison_eligible', true)
+                ->orWhereNull('comparison_eligible')
+            );
+    }
+
+    public function scopeObservedPrice(Builder $query): Builder
+    {
         return $query
             ->whereNotNull('price')
             ->where(function (Builder $sources): Builder {
@@ -83,12 +117,23 @@ class DealOffer extends Model
                         ->where('source', self::USER_CONFIRMED_SOURCE)
                         ->where('fetched_at', '>=', now()->subHours(self::userConfirmationHours()))
                     );
-            });
+            })
+            ->where(fn (Builder $quality): Builder => $quality
+                ->whereNull('evidence_quality')
+                ->orWhere('evidence_quality', '!=', OfferEvidenceQuality::Invalid->value)
+            );
     }
 
     public function hasVerifiedPrice(): bool
     {
-        if ($this->price === null || ! in_array($this->source, self::VERIFIED_PRICE_SOURCES, true)) {
+        return $this->hasObservedPrice() && $this->comparison_eligible !== false;
+    }
+
+    public function hasObservedPrice(): bool
+    {
+        if ($this->price === null
+            || ! in_array($this->source, self::VERIFIED_PRICE_SOURCES, true)
+            || $this->evidence_quality === OfferEvidenceQuality::Invalid) {
             return false;
         }
 
@@ -115,11 +160,12 @@ class DealOffer extends Model
 
         return DB::transaction(function (): ?DealOfferPrice {
             $offer = self::query()->lockForUpdate()->find($this->getKey());
-            if (! $offer instanceof self || ! $offer->hasVerifiedPrice()) {
+            if (! $offer instanceof self || ! $offer->hasObservedPrice()) {
                 return null;
             }
 
             $capturedAt = Carbon::parse($offer->fetched_at ?? now());
+            $attributes = $offer->priceSnapshotAttributes($capturedAt);
             $latest = $offer->priceSnapshots()
                 ->lockForUpdate()
                 ->latest('captured_at')
@@ -128,17 +174,82 @@ class DealOffer extends Model
             if ($latest
                 && (float) $latest->price === (float) $offer->price
                 && $latest->currency === $offer->currency
+                && $offer->hasSameSnapshotContext($latest, $attributes)
                 && abs(Carbon::parse($latest->captured_at)->diffInSeconds($capturedAt, false)) < 300) {
                 return $latest;
             }
 
-            return $offer->priceSnapshots()->create([
-                'price' => $offer->price,
-                'currency' => $offer->currency,
-                'source' => $offer->source,
-                'captured_at' => $capturedAt,
-            ]);
+            return $offer->priceSnapshots()->create($attributes);
         });
+    }
+
+    /** @return array<string, mixed> */
+    private function priceSnapshotAttributes(Carbon $capturedAt): array
+    {
+        return [
+            'price' => $this->price,
+            'currency' => $this->currency,
+            'source' => $this->source,
+            'captured_at' => $capturedAt,
+            'seller' => $this->seller,
+            'availability' => $this->availability,
+            'seller_type' => $this->seller_type?->value,
+            'condition' => $this->condition?->value,
+            'offer_scope' => $this->offer_scope?->value,
+            'purchasability' => $this->purchasability?->value,
+            'fulfillment_type' => $this->fulfillment_type?->value,
+            'evidence_quality' => $this->evidence_quality?->value,
+            'bundle' => $this->bundle,
+            'comparison_eligible' => $this->comparison_eligible,
+            'offer_evidence' => $this->offer_evidence,
+        ];
+    }
+
+    /** @param array<string, mixed> $attributes */
+    private function hasSameSnapshotContext(DealOfferPrice $latest, array $attributes): bool
+    {
+        $keys = [
+            'seller',
+            'availability',
+            'seller_type',
+            'condition',
+            'offer_scope',
+            'purchasability',
+            'fulfillment_type',
+            'evidence_quality',
+            'bundle',
+            'comparison_eligible',
+            'offer_evidence',
+        ];
+        $latestContext = [];
+        $incomingContext = [];
+        foreach ($keys as $key) {
+            $latestContext[$key] = $latest->getAttribute($key);
+            $incomingContext[$key] = $attributes[$key] ?? null;
+        }
+
+        return self::canonicalizeSnapshotContext($latestContext)
+            === self::canonicalizeSnapshotContext($incomingContext);
+    }
+
+    private static function canonicalizeSnapshotContext(mixed $value): mixed
+    {
+        if ($value instanceof BackedEnum) {
+            return $value->value;
+        }
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        $list = array_is_list($value);
+        foreach ($value as $key => $item) {
+            $value[$key] = self::canonicalizeSnapshotContext($item);
+        }
+        if (! $list) {
+            ksort($value);
+        }
+
+        return $value;
     }
 
     public function isOutOfStock(): bool

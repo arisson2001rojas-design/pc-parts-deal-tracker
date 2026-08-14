@@ -2,9 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\FulfillmentType;
+use App\Enums\OfferCondition;
+use App\Enums\OfferEvidenceQuality;
+use App\Enums\OfferPurchasability;
+use App\Enums\OfferScope;
+use App\Enums\SellerType;
 use App\Services\BrowserDiscoveryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class BrowserDiscoveryController extends Controller
 {
@@ -22,12 +29,22 @@ class BrowserDiscoveryController extends Controller
             'mpn' => ['nullable', 'string', 'max:255'],
             'model' => ['nullable', 'string', 'max:255'],
             'sku' => ['nullable', 'string', 'max:255'],
-            'condition' => ['nullable', 'string', 'max:100'],
-            'seller_type' => ['nullable', 'string', 'max:100'],
+            'condition' => ['nullable', Rule::enum(OfferCondition::class)],
+            'seller_type' => ['nullable', Rule::enum(SellerType::class)],
             'marketplace' => ['nullable', 'boolean'],
             'bundle' => ['nullable', 'boolean'],
+            'offer_scope' => ['nullable', Rule::enum(OfferScope::class)],
+            'purchasability' => ['nullable', Rule::enum(OfferPurchasability::class)],
+            'fulfillment_type' => ['nullable', Rule::enum(FulfillmentType::class)],
+            'evidence_quality' => ['nullable', Rule::enum(OfferEvidenceQuality::class)],
+            'offer_evidence' => ['nullable', 'array', 'max:8'],
+            'offer_evidence.source' => ['nullable', 'string', 'max:80'],
+            'offer_evidence.seller_source' => ['nullable', 'string', 'max:80'],
+            'offer_evidence.condition_source' => ['nullable', 'string', 'max:80'],
+            'offer_evidence.fulfillment_source' => ['nullable', 'string', 'max:80'],
+            'offer_evidence.conflict' => ['nullable', 'string', 'max:120'],
             'part_number' => ['nullable', 'string', 'max:255'],
-            'candidates' => ['required', 'array', 'min:1', 'max:20'],
+            'candidates' => ['sometimes', 'array', 'max:20'],
             'candidates.*.price' => ['required', 'numeric', 'gt:0', 'max:100000000'],
             'candidates.*.currency' => ['required', 'string', 'size:3'],
             'candidates.*.source' => ['required', 'string', 'max:60'],
@@ -38,14 +55,15 @@ class BrowserDiscoveryController extends Controller
 
         return response()->json([
             'data' => [
-                'offer_id' => $result['offer']->getKey(),
-                'pc_part_id' => $result['part']->getKey(),
-                'product_id' => $result['product']->getKey(),
+                'offer_id' => $result['offer']?->getKey(),
+                'pc_part_id' => $result['part']?->getKey(),
+                'product_id' => $result['product']?->getKey(),
                 'component_type' => $result['component_type']->value,
-                'price' => (float) $result['offer']->price,
-                'currency' => $result['offer']->currency,
-                'stored' => true,
+                'price' => $result['offer']?->price === null ? null : (float) $result['offer']->price,
+                'currency' => $result['offer']?->currency,
+                'stored' => $result['stored'],
+                'metadata_only' => $result['metadata_only'],
             ],
-        ], 201);
+        ], $result['metadata_only'] ? 200 : 201);
     }
 }

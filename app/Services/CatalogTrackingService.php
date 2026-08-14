@@ -49,11 +49,11 @@ class CatalogTrackingService
     }
 
     /**
-     * Activate only the catalog part observed by Browser Radar, persist its
-     * verified browser price, and leave the regular due-product scheduler in
-     * charge of the next refresh.
+     * Activate only the catalog part observed by Browser Radar and leave the
+     * regular due-product scheduler in charge of the next refresh. Only an
+     * explicitly comparison-eligible offer enters normal Product history.
      *
-     * @param  array{price: int|float|string, image_url?: string|null, availability?: string|null}  $observation
+     * @param  array{price: int|float|string, image_url?: string|null, availability?: string|null, comparison_eligible?: bool}  $observation
      */
     public function trackBrowserDiscovery(
         PcPart $part,
@@ -73,7 +73,9 @@ class CatalogTrackingService
                 browserDiscovery: true,
             );
 
-            $this->recordBrowserObservation($product, $part, $retailer, $observation, $image);
+            if (($observation['comparison_eligible'] ?? false) === true) {
+                $this->recordBrowserObservation($product, $part, $retailer, $observation, $image);
+            }
             $this->scheduleBrowserDiscovery($product);
 
             return $product->fresh();
@@ -204,7 +206,7 @@ class CatalogTrackingService
     }
 
     /**
-     * @param  array{price: int|float|string, image_url?: string|null, availability?: string|null}  $observation
+     * @param  array{price: int|float|string, image_url?: string|null, availability?: string|null, comparison_eligible?: bool}  $observation
      */
     private function recordBrowserObservation(
         Product $product,

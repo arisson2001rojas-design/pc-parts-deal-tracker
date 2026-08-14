@@ -5,6 +5,131 @@ await import("./extractors.js");
 
 const { __testing, detectComponentType, extract, isProductPage, parseAmount } = globalThis.PriceBuddyExtractor;
 
+function withPage(document, location, callback) {
+  const previousDocument = globalThis.document;
+  const previousLocation = globalThis.location;
+  globalThis.document = document;
+  globalThis.location = location;
+  try {
+    return callback();
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousLocation === undefined) delete globalThis.location;
+    else globalThis.location = previousLocation;
+  }
+}
+
+function amazonFixture({
+  merchant = "Ships from Amazon.com Sold by Amazon.com",
+  profileText = "Amazon.com",
+  profileHref = "",
+  condition = "New",
+  buyingChoices = false,
+  price = 299.99,
+  jsonLd = null,
+  productTitle = "AMD Ryzen 7 Desktop Processor"
+} = {}) {
+  const asin = "B0D1234567";
+  const title = productTitle;
+  const priceScope = {
+    id: "corePriceDisplay_desktop_feature_div",
+    className: "",
+    offsetWidth: 200,
+    offsetHeight: 40,
+    closest: () => null,
+    getClientRects: () => [1],
+    getAttribute: (name) => name === "data-csa-c-asin" ? asin : null,
+    querySelector: (selector) => selector.includes("accessibility-label")
+      ? { textContent: `US$${price}` }
+      : null,
+    querySelectorAll: () => []
+  };
+  const addToCart = {
+    disabled: false,
+    getAttribute: () => null,
+    textContent: "Add to Cart"
+  };
+  const profile = {
+    textContent: profileText,
+    href: profileHref,
+    getAttribute: (name) => name === "href" ? profileHref : null
+  };
+  const document = {
+    title,
+    querySelector: (selector) => {
+      if (selector.includes("product:price:currency")) return { content: "USD" };
+      if (selector === "#productTitle") return { textContent: title };
+      if (selector === "#merchant-info") return merchant ? { textContent: merchant } : null;
+      if (selector === "#sellerProfileTriggerId") return profileText ? profile : null;
+      if (["#condition", "#condition-value", "#offerCondition", "#renewedProgramDescription"].includes(selector)) {
+        return selector === "#condition" && condition ? { textContent: condition } : null;
+      }
+      if (selector === "#add-to-cart-button") return buyingChoices ? null : addToCart;
+      if (selector === "#buybox-see-all-buying-choices") {
+        return buyingChoices ? { textContent: "See All Buying Options" } : null;
+      }
+      if (selector === "#availability") return { textContent: buyingChoices ? "" : "In Stock" };
+      return null;
+    },
+    querySelectorAll: (selector) => {
+      if (selector === "script[type='application/ld+json']") {
+        return jsonLd ? [{ textContent: JSON.stringify(jsonLd) }] : [];
+      }
+      if (selector === "#tabular-buybox [tabular-attribute-name]") return [];
+      if (selector.startsWith("#corePriceDisplay_desktop_feature_div")
+          && !selector.includes(" .")) return price === null ? [] : [priceScope];
+      if (selector === "#availability") return [{ textContent: buyingChoices ? "" : "In Stock" }];
+      if (selector === "#buybox-see-all-buying-choices") {
+        return buyingChoices ? [{ textContent: "See All Buying Options" }] : [];
+      }
+      return [];
+    }
+  };
+  return {
+    document,
+    location: { hostname: "www.amazon.com", href: `https://www.amazon.com/dp/${asin}` }
+  };
+}
+
+function walmartFixture({
+  seller = "Walmart.com",
+  condition = "New",
+  availability = "IN_STOCK",
+  fulfillment = "Walmart.com",
+  price = 599.99
+} = {}) {
+  const title = "NVIDIA GeForce RTX 5070 Graphics Card";
+  const nextData = {
+    props: { pageProps: { initialData: { data: { product: {
+      name: title,
+      availabilityStatus: availability,
+      sellerDisplayName: seller,
+      conditionDisplayName: condition,
+      fulfillmentType: fulfillment,
+      isBundle: false,
+      priceInfo: { currentPrice: price === null ? null : { price, currencyCode: "USD" } },
+      imageInfo: { thumbnailUrl: "https://i5.walmartimages.com/example.jpg" }
+    } } } } }
+  };
+  return {
+    document: {
+      title,
+      querySelector: (selector) => {
+        if (selector === "#__NEXT_DATA__") return { textContent: JSON.stringify(nextData) };
+        if (selector === "meta[property='product:price:amount']") return { content: "99.99" };
+        if (selector.includes("product:price:currency")) return { content: "USD" };
+        return null;
+      },
+      querySelectorAll: () => []
+    },
+    location: {
+      hostname: "www.walmart.com",
+      href: "https://www.walmart.com/ip/RTX-5070/123456789"
+    }
+  };
+}
+
 test("reads Newegg's 2026 split dollar and cents price", () => {
   const parts = {
     strong: { textContent: "129" },
@@ -107,6 +232,228 @@ test("reconstructs Amazon price when a-offscreen is empty", () => {
   assert.equal(parseAmount(__testing.amazonPriceText(element)), 29.99);
 });
 
+test("rejects seller boilerplate while preserving real seller names", () => {
+  assert.equal(__testing.sellerName("M\u00e1s informaci\u00f3n acerca del vendedor"), null);
+  assert.equal(__testing.sellerName("M\u00c3\u00a1s informaci\u00c3\u00b3n acerca del vendedor"), null);
+  assert.equal(__testing.sellerName("Learn more about the seller"), null);
+  assert.equal(__testing.sellerName("Seller information"), null);
+  assert.equal(__testing.sellerName("vendor"), null);
+  assert.equal(__testing.sellerName("Opens in a new window"), null);
+  assert.equal(__testing.sellerName("Accessibility"), null);
+  assert.equal(__testing.sellerName("$129.99"), null);
+  assert.equal(__testing.sellerName("USD 129.99"), null);
+  assert.equal(__testing.sellerName("SenyTech Global"), "SenyTech Global");
+});
+
+test("normalizes supported offer conditions without guessing unknown values", () => {
+  assert.equal(__testing.normalizeCondition("https://schema.org/NewCondition"), "new");
+  assert.equal(__testing.normalizeCondition("Buy Used"), "used");
+  assert.equal(__testing.normalizeCondition("Pre-Owned"), "preowned");
+  assert.equal(__testing.normalizeCondition("Amazon Renewed"), "renewed");
+  assert.equal(__testing.normalizeCondition("Certified Refurbished"), "refurbished");
+  assert.equal(__testing.normalizeCondition("Open-Box Excellent"), "open_box");
+  assert.equal(__testing.normalizeCondition("Special offer"), "unknown");
+  assert.equal(__testing.normalizeAvailability("Pre-order now"), "unknown");
+});
+
+test("extracts one coherent Amazon marketplace offer", () => {
+  const fixture = amazonFixture({
+    merchant: "Ships from Amazon.com Sold by Pixel Depot",
+    profileText: "Pixel Depot",
+    profileHref: "/sp?seller=A1MARKETPLACE"
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Pixel Depot");
+  assert.equal(result.seller_type, "marketplace");
+  assert.equal(result.marketplace, true);
+  assert.equal(result.condition, "new");
+  assert.equal(result.offer_scope, "primary");
+  assert.equal(result.purchasability, "active");
+  assert.equal(result.fulfillment_type, "platform");
+  assert.equal(result.evidence_quality, "reliable");
+  assert.equal(result.bundle, null);
+  assert.equal(result.offer_evidence.source, "amazon_buy_box");
+  assert.equal(result.candidates[0].price, 299.99);
+});
+
+test("classifies a coherent Amazon first-party offer as retailer new", () => {
+  const fixture = amazonFixture({
+    jsonLd: {
+      "@type": "Product",
+      name: "AMD Ryzen 7 Desktop Processor",
+      offers: {
+        "@type": "Offer",
+        price: "299.99",
+        priceCurrency: "USD",
+        seller: { name: "amazon.com" },
+        itemCondition: "https://schema.org/NewCondition"
+      }
+    }
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Amazon.com");
+  assert.equal(result.seller_type, "retailer");
+  assert.equal(result.marketplace, false);
+  assert.equal(result.condition, "new");
+  assert.equal(result.offer_scope, "primary");
+  assert.equal(result.purchasability, "active");
+  assert.equal(result.fulfillment_type, "retailer");
+  assert.equal(result.evidence_quality, "reliable");
+});
+
+test("does not borrow a new condition from an unrelated Amazon JSON-LD offer", () => {
+  const fixture = amazonFixture({
+    condition: "",
+    jsonLd: {
+      "@type": "Product",
+      name: "AMD Ryzen 7 Desktop Processor",
+      offers: {
+        "@type": "Offer",
+        price: "299.99",
+        priceCurrency: "USD",
+        seller: { name: "Amazon.com" },
+        itemCondition: "https://schema.org/NewCondition"
+      }
+    }
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.condition, "unknown");
+  assert.equal(result.offer_scope, "primary");
+  assert.equal(result.purchasability, "active");
+  assert.equal(result.evidence_quality, "ambiguous");
+});
+
+test("keeps Amazon used renewed and open-box conditions non-new", () => {
+  for (const [raw, expected] of [
+    ["Used - Like New", "used"],
+    ["Amazon Renewed", "renewed"],
+    ["Open-Box Excellent", "open_box"]
+  ]) {
+    const fixture = amazonFixture({
+      condition: raw,
+      jsonLd: {
+        "@type": "Product",
+        name: "AMD Ryzen 7 Desktop Processor",
+        offers: {
+          "@type": "Offer",
+          price: "299.99",
+          priceCurrency: "USD",
+          seller: { name: "Amazon.com" },
+          itemCondition: "https://schema.org/NewCondition"
+        }
+      }
+    });
+    const result = withPage(fixture.document, fixture.location, () => extract());
+
+    assert.equal(result.condition, expected);
+    assert.equal(result.offer_scope, "primary");
+    assert.equal(result.purchasability, "active");
+    assert.equal(result.evidence_quality, "reliable");
+    assert.equal(result.offer_evidence.conflict, null);
+  }
+});
+
+test("ties Amazon seller fulfillment to the active third-party offer", () => {
+  const fixture = amazonFixture({
+    merchant: "Ships from Pixel Depot Sold by Pixel Depot",
+    profileText: "Pixel Depot",
+    profileHref: "/sp?seller=A1MARKETPLACE"
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Pixel Depot");
+  assert.equal(result.seller_type, "marketplace");
+  assert.equal(result.fulfillment_type, "seller");
+});
+
+test("marks an explicitly titled Amazon bundle without inventing false", () => {
+  const fixture = amazonFixture({
+    productTitle: "AMD Ryzen 7 Processor and Motherboard Bundle"
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.bundle, true);
+});
+
+test("keeps an active visible Amazon offer isolated from unrelated structured offer metadata", () => {
+  const fixture = amazonFixture({
+    jsonLd: {
+      "@type": "Product",
+      name: "AMD Ryzen 7 Desktop Processor",
+      offers: {
+        "@type": "Offer",
+        price: "199.99",
+        priceCurrency: "USD",
+        seller: { name: "Secondary Seller" },
+        itemCondition: "https://schema.org/UsedCondition"
+      }
+    }
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Amazon.com");
+  assert.equal(result.seller_type, "retailer");
+  assert.equal(result.condition, "new");
+  assert.equal(result.evidence_quality, "reliable");
+  assert.equal(result.offer_evidence.conflict, null);
+  assert.equal(result.candidates[0].price, 299.99);
+});
+
+test("never emits Amazon seller CTA text as a seller name", () => {
+  const fixture = amazonFixture({
+    merchant: "",
+    profileText: "M\u00e1s informaci\u00f3n acerca del vendedor",
+    profileHref: "/sp?seller=A1MARKETPLACE"
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, null);
+  assert.equal(result.seller_type, "marketplace");
+  assert.equal(result.marketplace, true);
+  assert.equal(result.evidence_quality, "invalid");
+  assert.equal(result.offer_evidence.conflict, "seller_boilerplate");
+});
+
+test("fails closed when Amazon has only buying choices", () => {
+  const structured = {
+    "@type": "Product",
+    name: "AMD Ryzen 7 Desktop Processor",
+    offers: {
+      "@type": "Offer",
+      price: "249.99",
+      priceCurrency: "USD",
+      availability: "https://schema.org/InStock",
+      seller: { name: "Secondary Seller" },
+      itemCondition: "https://schema.org/UsedCondition"
+    }
+  };
+  const fixture = amazonFixture({
+    buyingChoices: true,
+    price: null,
+    merchant: "",
+    profileText: "",
+    condition: "",
+    jsonLd: structured
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.offer_scope, "none");
+  assert.equal(result.purchasability, "buying_choices_only");
+  assert.equal(result.availability, "unknown");
+  assert.deepEqual(result.candidates, []);
+});
+
 test("reads Newegg's product payment amount fallback", () => {
   const element = {
     getAttribute: (name) => name === "data-pp-amount" ? "129.99" : null,
@@ -119,10 +466,16 @@ test("reads Newegg's product payment amount fallback", () => {
 });
 
 test("selects Newegg Buy New instead of used and marketplace prices", () => {
-  const pane = (label, price) => ({
+  const pane = (label, price, selected = false, seller = "Newegg") => ({
     querySelector: (selector) => selector === ".form-radiobox-title"
       ? { textContent: label }
-      : null,
+      : selector.includes("seller-name")
+        ? { textContent: seller }
+        : selector.includes("fulfillment-message")
+          ? { textContent: `Shipped by ${seller}` }
+      : selected && selector.includes("aria-checked")
+        ? { textContent: label }
+        : null,
     querySelectorAll: () => [{
       getAttribute: () => null,
       querySelector: () => null,
@@ -130,7 +483,7 @@ test("selects Newegg Buy New instead of used and marketplace prices", () => {
     }]
   });
   const buyBox = {
-    querySelectorAll: () => [pane("Buy Used", "$999.49"), pane("Buy New", "$1,399.99")],
+    querySelectorAll: () => [pane("Buy Used", "$999.49", true), pane("Buy New", "$1,399.99")],
     querySelector: (selector) => selector.includes("button")
       ? { disabled: false, getAttribute: () => null, textContent: "Add to cart" }
       : null,
@@ -145,7 +498,43 @@ test("selects Newegg Buy New instead of used and marketplace prices", () => {
   assert.equal(result.price, 1399.99);
   assert.equal(result.raw, "$1,399.99");
   assert.equal(result.availability, "in_stock");
+  assert.equal(result.observation.seller, "Newegg");
+  assert.equal(result.observation.seller_type, "retailer");
+  assert.equal(result.observation.condition, "new");
+  assert.equal(result.observation.evidence_quality, "reliable");
   assert.equal(detectComponentType("Samsung 870 QVO 8TB SATA SSD"), "ssd");
+});
+
+test("keeps a Newegg marketplace New offer non-retailer", () => {
+  const pane = {
+    textContent: "Buy New $1,299.99 Sold by SenyTech Global",
+    querySelector: (selector) => {
+      if (selector === ".form-radiobox-title") return { textContent: "Buy New" };
+      if (selector.includes("seller-name")) return { textContent: "SenyTech Global" };
+      if (selector.includes("fulfillment-message")) return { textContent: "Shipped by SenyTech Global" };
+      return null;
+    },
+    querySelectorAll: () => [{
+      getAttribute: () => null,
+      querySelector: () => null,
+      textContent: "$1,299.99"
+    }]
+  };
+  const buyBox = {
+    textContent: pane.textContent,
+    querySelectorAll: () => [pane],
+    querySelector: (selector) => selector.includes("button")
+      ? { disabled: false, getAttribute: () => null, textContent: "Add to cart" }
+      : null
+  };
+
+  const result = __testing.neweggPrimaryOffer({
+    querySelector: (selector) => selector === ".product-buy-box" ? buyBox : null
+  });
+
+  assert.equal(result.observation.condition, "new");
+  assert.equal(result.observation.seller_type, "marketplace");
+  assert.equal(result.observation.evidence_quality, "reliable");
 });
 
 test("uses Newegg's sole server-rendered pane as the active new offer", () => {
@@ -171,6 +560,80 @@ test("uses Newegg's sole server-rendered pane as the active new offer", () => {
 
   assert.equal(result.price, 1399.99);
   assert.equal(result.availability, "in_stock");
+});
+
+test("keeps Newegg used-offer metadata tied to the selected offer pane", () => {
+  const pane = {
+    textContent: "Buy Used $899.49 Sold by UsedTech Shipped by UsedTech",
+    querySelector: (selector) => {
+      if (selector === ".form-radiobox-title") return { textContent: "Buy Used" };
+      if (selector.includes("seller-name")) return { textContent: "UsedTech" };
+      if (selector.includes("fulfillment-message")) return { textContent: "Shipped by UsedTech" };
+      return null;
+    },
+    querySelectorAll: () => [{
+      getAttribute: () => null,
+      querySelector: () => null,
+      textContent: "$899.49"
+    }]
+  };
+  const buyBox = {
+    textContent: pane.textContent,
+    querySelectorAll: () => [pane],
+    querySelector: (selector) => selector.includes("button")
+      ? { disabled: false, getAttribute: () => null, textContent: "Add to cart" }
+      : null
+  };
+
+  const result = __testing.neweggPrimaryOffer({
+    querySelector: (selector) => selector === ".product-buy-box" ? buyBox : null
+  });
+
+  assert.equal(result.price, 899.49);
+  assert.equal(result.observation.seller, "UsedTech");
+  assert.equal(result.observation.seller_type, "marketplace");
+  assert.equal(result.observation.condition, "used");
+  assert.equal(result.observation.offer_scope, "primary");
+  assert.equal(result.observation.purchasability, "active");
+  assert.equal(result.observation.fulfillment_type, "seller");
+});
+
+test("extracts Walmart marketplace metadata from the same current product", () => {
+  const fixture = walmartFixture({ seller: "Pixel Depot" });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Pixel Depot");
+  assert.equal(result.seller_type, "marketplace");
+  assert.equal(result.condition, "new");
+  assert.equal(result.offer_scope, "primary");
+  assert.equal(result.purchasability, "active");
+  assert.equal(result.fulfillment_type, "platform");
+  assert.equal(result.evidence_quality, "reliable");
+  assert.equal(result.bundle, false);
+  assert.equal(result.offer_evidence.source, "walmart_next_data");
+  assert.deepEqual(result.candidates, [{
+    price: 599.99,
+    currency: "USD",
+    source: "walmart_current_offer",
+    confidence: 0.995
+  }]);
+});
+
+test("classifies Walmart first-party New and fails closed when offer context is unknown", () => {
+  const firstParty = walmartFixture();
+  const trusted = withPage(firstParty.document, firstParty.location, () => extract());
+  assert.equal(trusted.seller_type, "retailer");
+  assert.equal(trusted.condition, "new");
+  assert.equal(trusted.evidence_quality, "reliable");
+
+  const unknown = walmartFixture({ seller: "", condition: "", fulfillment: "", price: null });
+  const uncertain = withPage(unknown.document, unknown.location, () => extract());
+  assert.equal(uncertain.seller_type, "unknown");
+  assert.equal(uncertain.marketplace, null);
+  assert.equal(uncertain.condition, "unknown");
+  assert.equal(uncertain.evidence_quality, "ambiguous");
+  assert.deepEqual(uncertain.candidates, []);
 });
 
 test("builds a valid Newegg SSD Browser Radar discovery", () => {

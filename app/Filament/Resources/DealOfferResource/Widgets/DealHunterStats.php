@@ -17,10 +17,10 @@ class DealHunterStats extends StatsOverviewWidget
         $verified = DealOffer::query()
             ->currentUser()
             ->verifiedPrice()
+            ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
             ->where('fetched_at', '>=', now()->subDays(7));
 
         $underTarget = (clone $verified)
-            ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
             ->whereHas('dealSearch', fn (Builder $search): Builder => $search
                 ->whereNotNull('target_price')
                 ->whereColumn('deal_offers.price', '<=', 'deal_searches.target_price')

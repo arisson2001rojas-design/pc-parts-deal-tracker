@@ -11,6 +11,7 @@ use Filament\Resources\Resource;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class DealOfferResource extends Resource
 {
@@ -87,7 +88,13 @@ class DealOfferResource extends Resource
     {
         return parent::getEloquentQuery()
             ->currentUser()
-            ->with(['dealSearch', 'priceSnapshots']);
+            ->with([
+                'dealSearch',
+                'priceSnapshots' => fn (HasMany $query): HasMany => $query
+                    ->where(fn (Builder $eligible): Builder => $eligible
+                        ->where('comparison_eligible', true)
+                        ->orWhereNull('comparison_eligible')),
+            ]);
     }
 
     public static function canCreate(): bool

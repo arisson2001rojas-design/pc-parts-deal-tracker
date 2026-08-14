@@ -1,7 +1,12 @@
 @php
     /** @var App\Models\DealOffer $record */
-    $record->loadMissing(['dealSearch', 'priceSnapshots']);
-    $history = $record->priceSnapshots->sortBy('captured_at')->values();
+    $record->loadMissing('dealSearch');
+    $history = $record->priceSnapshots()
+        ->where(fn ($eligible) => $eligible
+            ->where('comparison_eligible', true)
+            ->orWhereNull('comparison_eligible'))
+        ->orderBy('captured_at')
+        ->get();
     $currentPrice = $record->hasVerifiedPrice() ? (float) $record->price : null;
     $minimumPrice = $history->min(fn ($snapshot) => (float) $snapshot->price);
     $maximumPrice = $history->max(fn ($snapshot) => (float) $snapshot->price);

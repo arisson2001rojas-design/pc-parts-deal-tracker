@@ -585,6 +585,7 @@ class DealHunterService
         $best = $search->offers()
             ->where('fetched_at', '>=', now()->subDay())
             ->verifiedPrice()
+            ->where('availability', '!=', DealOffer::AVAILABILITY_OUT_OF_STOCK)
             ->orderBy('price')
             ->first();
 

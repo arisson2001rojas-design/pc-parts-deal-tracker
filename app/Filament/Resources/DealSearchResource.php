@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Enums\ComponentType;
 use App\Filament\Resources\DealSearchResource\Pages;
 use App\Jobs\RefreshDealSearchJob;
+use App\Models\DealOffer;
 use App\Models\DealSearch;
 use App\Providers\Filament\AdminPanelProvider;
 use Filament\Forms;
@@ -112,7 +113,10 @@ class DealSearchResource extends Resource
     {
         return parent::getEloquentQuery()
             ->currentUser()
-            ->withMin(['offers' => fn (Builder $query): Builder => $query->whereNotNull('price')], 'price');
+            ->withMin(['offers' => function (Builder $query): Builder {
+                /** @var Builder<DealOffer> $query */
+                return $query->verifiedPrice();
+            }], 'price');
     }
 
     public static function getPages(): array
