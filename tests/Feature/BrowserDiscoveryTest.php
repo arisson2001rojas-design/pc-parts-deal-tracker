@@ -6,10 +6,12 @@ use App\Enums\ComponentType;
 use App\Enums\IdentityResolutionState;
 use App\Enums\Statuses;
 use App\Models\DealOffer;
+use App\Models\HardwareIdentity;
 use App\Models\PcPart;
 use App\Models\Product;
 use App\Models\RetailerListing;
 use App\Models\Store;
+use App\Models\Url;
 use App\Models\User;
 use App\Services\CatalogTrackingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -136,6 +138,195 @@ class BrowserDiscoveryTest extends TestCase
         $this->assertDatabaseCount('urls', 1);
         $this->assertDatabaseCount('prices', 2);
         $this->assertDatabaseHas('prices', ['price' => 119.99]);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_browser_radar_reuses_the_historical_owner_of_an_exact_retailer_listing(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $store = $this->createStore('Amazon US');
+        $historical = $this->createHistoricalTrackedListing(
+            $user,
+            $store,
+            'https://www.amazon.com/dp/B00EHBES1U',
+            149.99,
+            retailer: 'amazon',
+        );
+        $ownership = $historical['product']->only(['id', 'user_id', 'pc_part_id']);
+        $payload = $this->payload();
+        $payload['page_url'] = 'https://www.amazon.com/dp/B00EHBES1U';
+
+        $response = $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $payload)
+            ->assertCreated();
+
+        $this->assertSame($historical['part']->getKey(), $response->json('data.pc_part_id'));
+        $this->assertSame($historical['product']->getKey(), $response->json('data.product_id'));
+        $this->assertDatabaseCount('pc_parts', 1);
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseCount('urls', 1);
+        $this->assertDatabaseCount('prices', 2);
+        $this->assertDatabaseHas('prices', [
+            'url_id' => $historical['url']->getKey(),
+            'price' => 129.99,
+        ]);
+        $listing = RetailerListing::query()->sole();
+        $this->assertSame($listing->getKey(), $historical['url']->fresh()->retailer_listing_id);
+        $this->assertSame($ownership, $historical['product']->fresh()->only(array_keys($ownership)));
+        Queue::assertNothingPushed();
+    }
+
+    public function test_browser_radar_reuses_a_tracking_url_variant_and_preserves_tracking_preferences(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $store = $this->createStore('Newegg US');
+        $futureCheck = now()->addHours(5)->startOfSecond();
+        $historical = $this->createHistoricalTrackedListing(
+            $user,
+            $store,
+            'https://www.newegg.com/p/9SIC3U3KN44182?utm_source=legacy',
+            149.99,
+            productAttributes: [
+                'favourite' => true,
+                'paused' => true,
+                'paused_by_user' => true,
+                'refresh_interval' => 43210,
+                'next_check_at' => $futureCheck,
+            ],
+        );
+        $scheduledAt = $historical['product']->fresh()->next_check_at;
+        $payload = $this->payload();
+        $payload['page_url'] .= '?utm_campaign=radar';
+
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $payload)
+            ->assertCreated()
+            ->assertJsonPath('data.pc_part_id', $historical['part']->getKey())
+            ->assertJsonPath('data.product_id', $historical['product']->getKey());
+
+        $product = $historical['product']->fresh();
+        $this->assertTrue($product->favourite);
+        $this->assertTrue($product->paused);
+        $this->assertTrue($product->paused_by_user);
+        $this->assertSame(43210, $product->refresh_interval);
+        $this->assertTrue($scheduledAt->equalTo($product->next_check_at));
+        $this->assertDatabaseCount('pc_parts', 1);
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseCount('urls', 1);
+        $this->assertDatabaseCount('prices', 2);
+        $this->assertDatabaseHas('urls', [
+            'id' => $historical['url']->getKey(),
+            'url' => 'https://www.newegg.com/p/9SIC3U3KN44182?utm_source=legacy',
+        ]);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_conflicting_exact_listing_observation_preserves_trusted_historical_catalog_fields(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $store = $this->createStore('Newegg US');
+        $identity = HardwareIdentity::factory()->create([
+            'component_type' => ComponentType::Cpu,
+            'manufacturer' => 'AMD',
+            'manufacturer_normalized' => 'AMD',
+            'model' => 'Ryzen 5 5600',
+            'model_normalized' => 'RYZEN-5-5600',
+            'mpn' => '100-000000927',
+            'mpn_normalized' => '100-000000927',
+        ]);
+        $historical = $this->createHistoricalTrackedListing(
+            $user,
+            $store,
+            'https://www.newegg.com/p/9SIC3U3KN44182',
+            149.99,
+            partAttributes: ['hardware_identity_id' => $identity->getKey()],
+        );
+        $trusted = $historical['part']->only([
+            'hardware_identity_id',
+            'component_type',
+            'name',
+            'manufacturer',
+            'part_numbers',
+        ]);
+        $ownership = $historical['product']->only(['id', 'user_id', 'pc_part_id']);
+        $originalPrice = $historical['url']->prices()->firstOrFail();
+        $payload = $this->payload();
+        $payload['title'] = 'NVIDIA GeForce RTX 5090 32GB Graphics Card';
+        $payload['manufacturer'] = 'NVIDIA';
+        $payload['model'] = 'GeForce RTX 5090';
+        $payload['mpn'] = 'RTX5090-CONFLICT';
+        $payload['part_number'] = 'RTX5090-CONFLICT';
+        $payload['candidates'][0]['price'] = 119.99;
+        $payload['candidates'][1]['price'] = 119.99;
+
+        $response = $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $payload)
+            ->assertCreated();
+
+        $part = $historical['part']->fresh();
+        $product = $historical['product']->fresh();
+        $listing = RetailerListing::query()->sole();
+        $this->assertSame($historical['part']->getKey(), $response->json('data.pc_part_id'));
+        $this->assertSame($historical['product']->getKey(), $response->json('data.product_id'));
+        $this->assertSame(IdentityResolutionState::Conflicting, $listing->resolution_state);
+        $this->assertSame($trusted, $part->only(array_keys($trusted)));
+        $this->assertSame($ownership, $product->only(array_keys($ownership)));
+        $this->assertDatabaseHas('prices', [
+            'id' => $originalPrice->getKey(),
+            'url_id' => $historical['url']->getKey(),
+            'price' => 149.99,
+        ]);
+        $this->assertDatabaseHas('prices', [
+            'url_id' => $historical['url']->getKey(),
+            'price' => 119.99,
+        ]);
+        $this->assertDatabaseCount('pc_parts', 1);
+        $this->assertDatabaseCount('products', 1);
+        $this->assertDatabaseCount('urls', 1);
+        $this->assertDatabaseCount('prices', 2);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_browser_radar_fails_closed_when_multiple_products_claim_the_exact_listing(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $store = $this->createStore('Newegg US');
+        $this->createHistoricalTrackedListing(
+            $user,
+            $store,
+            'https://www.newegg.com/p/9SIC3U3KN44182',
+            149.99,
+        );
+        $this->createHistoricalTrackedListing(
+            $user,
+            $store,
+            'https://www.newegg.com/p/9SIC3U3KN44182?utm_source=duplicate',
+            139.99,
+            partAttributes: [
+                'name' => 'Conflicting historical catalog part',
+                'part_numbers' => ['OTHER-MPN'],
+            ],
+        );
+
+        $this->withHeader('X-PriceBuddy-Companion', '1')
+            ->postJson(route('api.browser-discoveries'), $this->payload())
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('page_url')
+            ->assertJsonPath(
+                'errors.page_url.0',
+                'This retailer listing is already tracked by multiple products. Resolve those duplicate products before Browser Radar can record it.',
+            );
+
+        $this->assertDatabaseCount('pc_parts', 2);
+        $this->assertDatabaseCount('products', 2);
+        $this->assertDatabaseCount('urls', 2);
+        $this->assertDatabaseCount('prices', 2);
+        $this->assertDatabaseCount('retailer_listings', 0);
+        $this->assertDatabaseCount('deal_offers', 0);
         Queue::assertNothingPushed();
     }
 
@@ -292,7 +483,9 @@ class BrowserDiscoveryTest extends TestCase
         ];
         $productOwnership = $product->only(['id', 'user_id', 'pc_part_id']);
         $urlsBefore = $product->urls()->orderBy('id')->get(['id', 'product_id', 'url'])->toArray();
-        $pricesBefore = $product->urls()->firstOrFail()->prices()
+        /** @var Url $productUrl */
+        $productUrl = $product->urls()->firstOrFail();
+        $pricesBefore = $productUrl->prices()
             ->orderBy('id')
             ->get(['id', 'url_id', 'price', 'created_at'])
             ->toArray();
@@ -324,7 +517,7 @@ class BrowserDiscoveryTest extends TestCase
         $this->assertSame($urlsBefore, $product->urls()->orderBy('id')->get(['id', 'product_id', 'url'])->toArray());
         $this->assertSame(
             $pricesBefore,
-            $product->urls()->firstOrFail()->prices()
+            $productUrl->prices()
                 ->orderBy('id')
                 ->get(['id', 'url_id', 'price', 'created_at'])
                 ->toArray(),
@@ -476,8 +669,10 @@ class BrowserDiscoveryTest extends TestCase
         ]);
 
         $offer = DealOffer::query()->firstOrFail();
+        /** @var ComponentType $dealSearchComponentType */
+        $dealSearchComponentType = $offer->dealSearch->component_type;
         $this->assertSame('browser-radar:motherboard', $offer->dealSearch->query);
-        $this->assertSame('motherboard', $offer->dealSearch->component_type->value);
+        $this->assertSame('motherboard', $dealSearchComponentType->value);
         $this->assertSame('motherboard', Product::query()->firstOrFail()->component_type->value);
     }
 
@@ -545,5 +740,52 @@ class BrowserDiscoveryTest extends TestCase
     private function createStore(string $name): Store
     {
         return Store::factory()->create(['name' => $name]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $partAttributes
+     * @param  array<string, mixed>  $productAttributes
+     * @return array{part: PcPart, product: Product, url: Url}
+     */
+    private function createHistoricalTrackedListing(
+        User $user,
+        Store $store,
+        string $url,
+        float $price,
+        string $retailer = 'newegg',
+        array $partAttributes = [],
+        array $productAttributes = [],
+    ): array {
+        $part = PcPart::factory()->create([
+            'component_type' => ComponentType::Cpu,
+            'name' => 'AMD Ryzen 5 5600 Desktop Processor',
+            'manufacturer' => 'AMD',
+            'part_numbers' => ['100-000000927'],
+            'retailer_urls' => [$retailer => $url],
+            'source_url' => $url,
+            ...$partAttributes,
+        ]);
+        $product = Product::factory()->create([
+            'user_id' => $user->getKey(),
+            'pc_part_id' => $part->getKey(),
+            'title' => $part->name,
+            'component_type' => $part->component_type->value,
+            ...$productAttributes,
+        ]);
+        /** @var Url $trackedUrl */
+        $trackedUrl = $product->urls()->create([
+            'url' => $url,
+            'store_id' => $store->getKey(),
+            'price_factor' => 1,
+        ]);
+        $trackedUrl->prices()->create([
+            'price' => $price,
+            'unit_price' => $price,
+            'price_factor' => 1,
+            'store_id' => $store->getKey(),
+        ]);
+        $product->updatePriceCache();
+
+        return ['part' => $part, 'product' => $product, 'url' => $trackedUrl];
     }
 }
