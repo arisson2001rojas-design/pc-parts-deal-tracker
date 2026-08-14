@@ -20,7 +20,103 @@ function withPage(document, location, callback) {
   }
 }
 
+function amazonOfferDisplayScope({
+  asin,
+  seller = "",
+  sellerLabel = "Sold by",
+  fulfillment = "",
+  fulfillmentLabel = "Ships from",
+  uodSeller = "",
+  uodSellerLabel = "Sold by",
+  uodFulfillment = "",
+  uodFulfillmentLabel = "Ships from",
+  uodCondition = "",
+  exposeLabelNodes = true,
+  selector = "#offerDisplayFeatures_desktop #offer-display-features"
+}) {
+  let scope;
+  const row = (id, label, value) => {
+    let currentRow;
+    const secondary = /^uod/i.test(id);
+    const labelElement = { textContent: label };
+    const valueElement = {
+      textContent: value,
+      getAttribute: () => null,
+      closest: (query) => {
+        if (query === "[data-csa-c-asin]") return scope;
+        if (secondary && query.includes("[id^='uod']")) return currentRow;
+        return null;
+      }
+    };
+    currentRow = {
+      id,
+      textContent: `${label} ${value}`,
+      getAttribute: (name) => name === "id" ? id : null,
+      closest: (query) => {
+        if (query === "[data-csa-c-asin]") return scope;
+        if (secondary && query.includes("[id^='uod']")) return currentRow;
+        return null;
+      },
+      querySelector: (query) => {
+        if (query === ".offer-display-feature-label") return exposeLabelNodes ? labelElement : null;
+        if (query === ".offer-display-feature-text-message") return valueElement;
+        return null;
+      }
+    };
+    return currentRow;
+  };
+  const sellerRow = seller
+    ? row("merchantInfoFeature_feature_div", sellerLabel, seller)
+    : null;
+  const fulfillmentRow = fulfillment
+    ? row("fulfillerInfoFeature_feature_div", fulfillmentLabel, fulfillment)
+    : null;
+  const uodSellerRow = uodSeller
+    ? row("uodMerchantInfoFeature_feature_div", uodSellerLabel, uodSeller)
+    : null;
+  const uodFulfillmentRow = uodFulfillment
+    ? row("uodFulfillerInfoFeature_feature_div", uodFulfillmentLabel, uodFulfillment)
+    : null;
+  const uodConditionRow = uodCondition
+    ? row("uodCondition_feature_div", "Condition", uodCondition)
+    : null;
+  scope = {
+    getAttribute: (name) => name === "data-csa-c-asin" ? asin : null,
+    closest: (query) => query === "[data-csa-c-asin]" ? scope : null,
+    querySelector: (query) => {
+      if (query === "#merchantInfoFeature_feature_div") return sellerRow;
+      if (query === "#fulfillerInfoFeature_feature_div") return fulfillmentRow;
+      if (query === "#uodMerchantInfoFeature_feature_div") return uodSellerRow;
+      if (query === "#uodFulfillerInfoFeature_feature_div") return uodFulfillmentRow;
+      if (query === "#uodCondition_feature_div") return uodConditionRow;
+      return null;
+    }
+  };
+  return { selector, scope };
+}
+
+function amazonVariationElement({ asin, id, label, value }) {
+  let element;
+  element = {
+    id,
+    textContent: `${label}: ${value}`,
+    getAttribute: (name) => {
+      if (name === "id") return id;
+      if (name === "data-csa-c-asin") return asin;
+      return null;
+    },
+    closest: (query) => query === "[data-csa-c-asin]" ? element : null,
+    querySelector: (query) => {
+      if (query === ".a-form-label") return { textContent: label };
+      if (query === ".selection") return { textContent: value };
+      return null;
+    }
+  };
+  return element;
+}
+
 function amazonFixture({
+  asin = "B0D1234567",
   merchant = "Ships from Amazon.com Sold by Amazon.com",
   profileText = "Amazon.com",
   profileHref = "",
@@ -28,10 +124,31 @@ function amazonFixture({
   buyingChoices = false,
   price = 299.99,
   jsonLd = null,
-  productTitle = "AMD Ryzen 7 Desktop Processor"
+  productTitle = "AMD Ryzen 7 Desktop Processor",
+  offerDisplays = [],
+  variationPattern = null,
+  variationStyle = null
 } = {}) {
-  const asin = "B0D1234567";
   const title = productTitle;
+  const offerDisplayScopes = offerDisplays.map((offerDisplay) => amazonOfferDisplayScope({
+    asin,
+    ...offerDisplay
+  }));
+  const variations = new Map();
+  if (variationPattern) {
+    variations.set("#variation_pattern_name", amazonVariationElement({
+      asin,
+      id: "variation_pattern_name",
+      ...variationPattern
+    }));
+  }
+  if (variationStyle) {
+    variations.set("#variation_style_name", amazonVariationElement({
+      asin,
+      id: "variation_style_name",
+      ...variationStyle
+    }));
+  }
   const priceScope = {
     id: "corePriceDisplay_desktop_feature_div",
     className: "",
@@ -70,6 +187,9 @@ function amazonFixture({
         return buyingChoices ? { textContent: "See All Buying Options" } : null;
       }
       if (selector === "#availability") return { textContent: buyingChoices ? "" : "In Stock" };
+      if (variations.has(selector)) return variations.get(selector);
+      const offerDisplay = offerDisplayScopes.find((entry) => entry.selector === selector);
+      if (offerDisplay) return offerDisplay.scope;
       return null;
     },
     querySelectorAll: (selector) => {
@@ -82,6 +202,12 @@ function amazonFixture({
       if (selector === "#availability") return [{ textContent: buyingChoices ? "" : "In Stock" }];
       if (selector === "#buybox-see-all-buying-choices") {
         return buyingChoices ? [{ textContent: "See All Buying Options" }] : [];
+      }
+      if (variations.has(selector)) return [variations.get(selector)];
+      if (selector.includes("#offer-display-features")) {
+        return offerDisplayScopes
+          .filter((entry) => entry.selector === selector)
+          .map((entry) => entry.scope);
       }
       return [];
     }
@@ -305,6 +431,208 @@ test("classifies a coherent Amazon first-party offer as retailer new", () => {
   assert.equal(result.evidence_quality, "reliable");
 });
 
+test("reads Spanish Amazon offer-display seller and fulfillment from the active Buy Box", () => {
+  const asin = "B0F8B59WP7";
+  const fixture = amazonFixture({
+    asin,
+    merchant: "",
+    profileText: "Más información acerca del vendedor",
+    profileHref: `/sp?seller=A39LAUWR53IY4G&asin=${asin}&isAmazonFulfilled=1`,
+    condition: "",
+    price: 469.99,
+    productTitle: "ASRock AMD Radeon Graphics Card",
+    offerDisplays: [{
+      sellerLabel: "Vendido por",
+      seller: "ASRock USA",
+      fulfillmentLabel: "Enviado por",
+      fulfillment: "Amazon"
+    }]
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "ASRock USA");
+  assert.equal(result.seller_type, "marketplace");
+  assert.equal(result.marketplace, true);
+  assert.equal(result.condition, "unknown");
+  assert.equal(result.offer_scope, "primary");
+  assert.equal(result.purchasability, "active");
+  assert.equal(result.fulfillment_type, "platform");
+  assert.equal(result.evidence_quality, "ambiguous");
+  assert.equal(result.offer_evidence.source, "amazon_offer_display_features");
+  assert.equal(result.offer_evidence.seller_source, "amazon_offer_display_features");
+  assert.equal(result.offer_evidence.fulfillment_source, "amazon_offer_display_features");
+  assert.equal(result.offer_evidence.conflict, null);
+  assert.equal(result.candidates[0].price, 469.99);
+});
+
+test("reads the English Amazon offer-display equivalent", () => {
+  const fixture = amazonFixture({
+    merchant: "",
+    profileText: "",
+    offerDisplays: [{
+      sellerLabel: "Sold by",
+      seller: "Third Party Seller",
+      fulfillmentLabel: "Ships from",
+      fulfillment: "Amazon"
+    }]
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Third Party Seller");
+  assert.equal(result.seller_type, "marketplace");
+  assert.equal(result.fulfillment_type, "platform");
+  assert.equal(result.evidence_quality, "reliable");
+});
+
+test("classifies a first-party Amazon offer-display offer", () => {
+  const fixture = amazonFixture({
+    merchant: "",
+    profileText: "",
+    offerDisplays: [{
+      sellerLabel: "Sold by",
+      seller: "Amazon.com",
+      fulfillmentLabel: "Ships from",
+      fulfillment: "Amazon"
+    }]
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Amazon.com");
+  assert.equal(result.seller_type, "retailer");
+  assert.equal(result.marketplace, false);
+  assert.equal(result.fulfillment_type, "retailer");
+  assert.equal(result.evidence_quality, "reliable");
+});
+
+test("reads a combined Spanish first-party row without borrowing same-ASIN UOD evidence", () => {
+  const asin = "B0D6NN6TM7";
+  const fixture = amazonFixture({
+    asin,
+    merchant: "",
+    profileText: "Más información acerca del vendedor",
+    profileHref: `/sp?seller=AMAZON&asin=${asin}&isAmazonFulfilled=1`,
+    condition: "",
+    productTitle: "AMD Ryzen 5 9600X",
+    offerDisplays: [{
+      sellerLabel: "Remitente / Vendedor",
+      seller: "Amazon.com",
+      exposeLabelNodes: false,
+      uodSellerLabel: "Vendido por",
+      uodSeller: "Amazon Resale",
+      uodFulfillmentLabel: "Enviado por",
+      uodFulfillment: "Amazon",
+      uodCondition: "Usado - Como nuevo"
+    }]
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Amazon.com");
+  assert.equal(result.seller_type, "retailer");
+  assert.equal(result.marketplace, false);
+  assert.equal(result.fulfillment_type, "retailer");
+  assert.equal(result.condition, "unknown");
+  assert.equal(result.evidence_quality, "ambiguous");
+  assert.equal(result.offer_evidence.seller_source, "amazon_offer_display_features");
+  assert.equal(result.offer_evidence.fulfillment_source, "amazon_offer_display_features");
+  assert.equal(result.offer_evidence.conflict, null);
+  assert.notEqual(result.seller, "Amazon Resale");
+  assert.notEqual(result.condition, "used");
+});
+
+test("reads the combined English first-party offer-display label", () => {
+  const fixture = amazonFixture({
+    merchant: "",
+    profileText: "",
+    condition: "",
+    offerDisplays: [{
+      sellerLabel: "Ships from / Sold by",
+      seller: "Amazon.com"
+    }]
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Amazon.com");
+  assert.equal(result.seller_type, "retailer");
+  assert.equal(result.fulfillment_type, "retailer");
+  assert.equal(result.condition, "unknown");
+  assert.equal(result.evidence_quality, "ambiguous");
+});
+
+test("treats a combined third-party offer-display row as seller fulfilled", () => {
+  const fixture = amazonFixture({
+    merchant: "",
+    profileText: "",
+    offerDisplays: [{
+      sellerLabel: "Ships from / Sold by",
+      seller: "Example Seller"
+    }]
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Example Seller");
+  assert.equal(result.seller_type, "marketplace");
+  assert.equal(result.fulfillment_type, "seller");
+  assert.equal(result.offer_evidence.seller_source, "amazon_offer_display_features");
+  assert.equal(result.offer_evidence.fulfillment_source, "amazon_offer_display_features");
+});
+
+test("prefers structural Amazon seller evidence over seller-profile boilerplate", () => {
+  const fixture = amazonFixture({
+    merchant: "",
+    profileText: "More information about the seller",
+    profileHref: "/sp?seller=A1MARKETPLACE",
+    offerDisplays: [{ seller: "Visible Seller", fulfillment: "Amazon" }]
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Visible Seller");
+  assert.equal(result.offer_evidence.seller_source, "amazon_offer_display_features");
+  assert.equal(result.offer_evidence.conflict, null);
+});
+
+test("ignores Amazon offer-display rows scoped to a different ASIN", () => {
+  const fixture = amazonFixture({
+    merchant: "Ships from Amazon.com Sold by Current Seller",
+    profileText: "",
+    offerDisplays: [{
+      asin: "B0STALE999",
+      seller: "Stale Seller",
+      fulfillment: "Stale Fulfillment"
+    }]
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Current Seller");
+  assert.equal(result.fulfillment_type, "platform");
+  assert.equal(result.offer_evidence.seller_source, "amazon_merchant_info");
+  assert.notEqual(result.seller, "Stale Seller");
+});
+
+test("uses a matching Amazon seller-profile href only as fulfillment fallback", () => {
+  const asin = "B0D1234567";
+  const fixture = amazonFixture({
+    asin,
+    merchant: "",
+    profileText: "Seller Profile",
+    profileHref: `/sp?seller=A1MARKETPLACE&asin=${asin}&isAmazonFulfilled=1`,
+    offerDisplays: [{ seller: "Profiled Seller" }]
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.seller, "Profiled Seller");
+  assert.equal(result.fulfillment_type, "platform");
+  assert.equal(result.offer_evidence.fulfillment_source, "amazon_seller_profile_href");
+});
+
 test("does not borrow a new condition from an unrelated Amazon JSON-LD offer", () => {
   const fixture = amazonFixture({
     condition: "",
@@ -381,6 +709,60 @@ test("marks an explicitly titled Amazon bundle without inventing false", () => {
   const result = withPage(fixture.document, fixture.location, () => extract());
 
   assert.equal(result.bundle, true);
+});
+
+test("detects the real mixed CPU and motherboard Amazon title as a bundle", () => {
+  const title = "AMD Ryzen 5 7600X + GIGABYTE B650 AORUS ELITE AX placa base";
+  const fixture = amazonFixture({
+    condition: "",
+    productTitle: title
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.deepEqual(__testing.detectBundleComponentTypes(title), ["cpu", "motherboard"]);
+  assert.equal(result.bundle, true);
+  assert.equal(result.component_type, "motherboard");
+  assert.equal(result.condition, "unknown");
+});
+
+test("detects selected Spanish and English Amazon bundle variations", () => {
+  const spanish = amazonFixture({
+    productTitle: "AMD Ryzen 5 7600X Desktop Processor",
+    variationPattern: { label: "Nombre del patrón", value: "Paquete" }
+  });
+  const english = amazonFixture({
+    productTitle: "AMD Ryzen 5 7600X Desktop Processor",
+    variationPattern: { label: "Pattern Name", value: "Bundle" }
+  });
+
+  const spanishResult = withPage(spanish.document, spanish.location, () => extract());
+  const englishResult = withPage(english.document, english.location, () => extract());
+
+  assert.equal(spanishResult.bundle, true);
+  assert.equal(englishResult.bundle, true);
+});
+
+test("ignores Amazon bundle variation evidence scoped to another ASIN", () => {
+  const fixture = amazonFixture({
+    productTitle: "AMD Ryzen 5 7600X Desktop Processor",
+    variationPattern: {
+      asin: "B0STALE999",
+      label: "Pattern Name",
+      value: "Bundle"
+    }
+  });
+
+  const result = withPage(fixture.document, fixture.location, () => extract());
+
+  assert.equal(result.bundle, null);
+});
+
+test("keeps compatibility and single-component titles out of bundle inference", () => {
+  assert.equal(__testing.bundleFromTitle("B650 motherboard DDR5 Ryzen 7000 compatible"), null);
+  assert.equal(__testing.bundleFromTitle("DDR5 kit 32GB"), null);
+  assert.equal(__testing.bundleFromTitle("Ryzen 5 7600X processor with Wraith cooler"), null);
+  assert.equal(__testing.bundleFromTitle("Intel Core Ultra support + DDR5"), null);
 });
 
 test("keeps an active visible Amazon offer isolated from unrelated structured offer metadata", () => {
